@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: __init__.py 1691 2008-01-30 17:11:09Z edloper $
 
 """
 Automatic Python reference documentation generator.  Epydoc processes
@@ -167,7 +167,7 @@ information about the submodules and subpackages.
 
 :author: `Edward Loper <edloper@gradient.cis.upenn.edu>`__
 :requires: Python 2.3+
-:version: 3.0.2
+:version: 3.0.1
 :see: `The epydoc webpage <http://epydoc.sourceforge.net>`__
 :see: `The epytext markup language
     manual <http://epydoc.sourceforge.net/epytext.html>`__
@@ -195,13 +195,12 @@ information about the submodules and subpackages.
 :contributor: `Simon Pamies  <mailto:spamies@bipbap.de>`__
 :contributor: `Christian Reis  <mailto:kiko@async.com.br>`__
 :contributor: `Daniele Varrazzo  <mailto:daniele.varrazzo@gmail.com>`__
-:contributor: `Jonathan Guyer <mailto:guyer@nist.gov>`__
 
 .. |copy| unicode:: 0xA9 .. copyright sign
 """
 __docformat__ = 'restructuredtext en'
 
-__version__ = '3.0.2'
+__version__ = '3.0.1'
 """The version of epydoc"""
 
 __author__ = 'Edward Loper <edloper@gradient.cis.upenn.edu>'

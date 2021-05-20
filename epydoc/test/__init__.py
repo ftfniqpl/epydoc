@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: __init__.py 1502 2007-02-14 08:38:44Z edloper $
 
 """
 Regression testing.

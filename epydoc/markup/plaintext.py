@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [04/10/01 12:00 AM]
-# $Id$
+# $Id: plaintext.py 1574 2007-03-07 02:55:14Z dvarrazzo $
 #
 
 """

@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: util.py 1671 2008-01-29 02:55:49Z edloper $
 
 """
 Miscellaneous utility functions that are used by multiple modules.
@@ -16,7 +16,7 @@ Miscellaneous utility functions that are used by multiple modules.
 """
 __docformat__ = 'epytext en'
 
-import os, os.path, re, sys
+import os, os.path, re
 
 ######################################################################
 ## Python Source Types
@@ -39,7 +39,7 @@ def is_src_filename(filename):
     if not isinstance(filename, basestring): return False
     if not os.path.exists(filename): return False
     return os.path.splitext(filename)[1] in PY_SRC_EXTENSIONS
-    
+
 def is_package_dir(dirname):
     """
     Return true if the given directory is a valid package directory
@@ -56,12 +56,12 @@ def is_package_dir(dirname):
     # "foo/", where os.path.split -> ("foo", "").)
     (parent, dir) = os.path.split(dirname)
     if dir == '': (parent, dir) = os.path.split(parent)
-    
+
     # The following constraint was removed because of sourceforge
     # bug #1787028 -- in some cases (eg eggs), it's too strict.
     #if not re.match('\w+$', dir):
     #    return False
-    
+
     for name in os.listdir(dirname):
         filename = os.path.join(dirname, name)
         if name.startswith('__init__.') and is_module_file(filename):
@@ -165,7 +165,7 @@ def plaintext_to_html(s):
     s = s.replace('&', '&amp;').replace('"', '&quot;')
     s = s.replace('<', '&lt;').replace('>', '&gt;')
     return s
-        
+
 def plaintext_to_latex(str, nbsp=0, breakany=0):
     """
     @return: A LaTeX string that encodes the given plaintext string.
@@ -203,7 +203,7 @@ def plaintext_to_latex(str, nbsp=0, breakany=0):
 
     # Convert \1's to hyphenation points.
     if breakany: str = str.replace('\1', r'\-')
-    
+
     return str
 
 class RunSubprocessError(OSError):
@@ -215,7 +215,7 @@ class RunSubprocessError(OSError):
 def run_subprocess(cmd, data=None):
     """
     Execute the command C{cmd} in a subprocess.
-    
+
     @param cmd: The command to execute, specified as a list
         of string.
     @param data: A string containing data to send to the
@@ -276,7 +276,7 @@ def run_subprocess(cmd, data=None):
             try:
                 to_child.write(data)
             # Guard for a broken pipe error
-            except IOError, e:
+            except IOError as e:
                 raise OSError(e)
         to_child.close()
         out = from_child.read()
@@ -287,99 +287,3 @@ def run_subprocess(cmd, data=None):
             return out, err
         else:
             raise RunSubprocessError(cmd, out, err)
-
-######################################################################
-## Terminal Control
-######################################################################
-
-class TerminalController:
-    """
-    A class that can be used to portably generate formatted output to
-    a terminal.  See
-    U{http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/475116}
-    for documentation.  (This is a somewhat stripped-down version.)
-    """
-    BOL = ''             #: Move the cursor to the beginning of the line
-    UP = ''              #: Move the cursor up one line
-    DOWN = ''            #: Move the cursor down one line
-    LEFT = ''            #: Move the cursor left one char
-    RIGHT = ''           #: Move the cursor right one char
-    CLEAR_EOL = ''       #: Clear to the end of the line.
-    CLEAR_LINE = ''      #: Clear the current line; cursor to BOL.
-    BOLD = ''            #: Turn on bold mode
-    NORMAL = ''          #: Turn off all modes
-    COLS = 75            #: Width of the terminal (default to 75)
-    UNDERLINE = ''       #: Underline the text
-    REVERSE = ''         #: Reverse the foreground & background
-    BLACK = BLUE = GREEN = CYAN = RED = MAGENTA = YELLOW = WHITE = ''
-    
-    _STRING_CAPABILITIES = """
-    BOL=cr UP=cuu1 DOWN=cud1 LEFT=cub1 RIGHT=cuf1 REVERSE=rev 
-    CLEAR_EOL=el BOLD=bold UNDERLINE=smul NORMAL=sgr0""".split()
-    _COLORS = """BLACK BLUE GREEN CYAN RED MAGENTA YELLOW WHITE""".split()
-    _ANSICOLORS = "BLACK RED GREEN YELLOW BLUE MAGENTA CYAN WHITE".split()
-
-    #: If this is set to true, then new TerminalControllers will
-    #: assume that the terminal is not capable of doing manipulation
-    #: of any kind.
-    FORCE_SIMPLE_TERM = False
-
-    def __init__(self, term_stream=sys.stdout):
-        # If the stream isn't a tty, then assume it has no capabilities.
-        if not term_stream.isatty(): return
-        if self.FORCE_SIMPLE_TERM: return
-
-        # Curses isn't available on all platforms
-        try: import curses
-        except:
-            # If it's not available, then try faking enough to get a
-            # simple progress bar.
-            self.BOL = '\r'
-            self.CLEAR_LINE = '\r' + ' '*self.COLS + '\r'
-            
-        # Check the terminal type.  If we fail, then assume that the
-        # terminal has no capabilities.
-        try: curses.setupterm()
-        except: return
-
-        # Look up numeric capabilities.
-        self.COLS = curses.tigetnum('cols')
-        
-        # Look up string capabilities.
-        for capability in self._STRING_CAPABILITIES:
-            (attrib, cap_name) = capability.split('=')
-            setattr(self, attrib, self._tigetstr(cap_name) or '')
-        if self.BOL and self.CLEAR_EOL:
-            self.CLEAR_LINE = self.BOL+self.CLEAR_EOL
-
-        # Colors
-        set_fg = self._tigetstr('setf')
-        if set_fg:
-            for i,color in zip(range(len(self._COLORS)), self._COLORS):
-                setattr(self, color, curses.tparm(set_fg, i) or '')
-        set_fg_ansi = self._tigetstr('setaf')
-        if set_fg_ansi:
-            for i,color in zip(range(len(self._ANSICOLORS)), self._ANSICOLORS):
-                setattr(self, color, curses.tparm(set_fg_ansi, i) or '')
-
-    def _tigetstr(self, cap_name):
-        # String capabilities can include "delays" of the form "$<2>".
-        # For any modern terminal, we should be able to just ignore
-        # these, so strip them out.
-        import curses
-        cap = curses.tigetstr(cap_name) or ''
-        return re.sub(r'\$<\d+>[/*]?', '', cap)
-    
-    def render(self, template):
-        """
-        Replace each $-substitutions in the given template string with
-        the corresponding terminal control string (if it's defined) or
-        '' (if it's not).
-        """
-        return re.sub(r'\$\$|\${\w+}', self._render_sub, template)
-
-    def _render_sub(self, match):
-        s = match.group()
-        if s == '$$': return s
-        else: return getattr(self, s[2:-1])
-

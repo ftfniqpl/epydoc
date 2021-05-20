@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: docparser.py 1673 2008-01-29 05:42:58Z edloper $
 
 """
 Extract API documentation about python objects by parsing their source
@@ -145,10 +145,6 @@ it do to the documentation of the decorated function?
     knowledge about what value the decorator returns.
 """
 
-PUBLIC_DECORATOR_APPENDS_TO_ALL = True
-"""If true, then the @public decorator will append the function's
-name to the module's __all__ variable."""
-
 BASE_HANDLING = 'parse'#'link'
 """What should C{docparser} do when it encounters a base class that
 was imported from another module?
@@ -285,7 +281,7 @@ def parse_docs(filename=None, name=None, context=None, is_script=False):
             raise ParseError('Error during parsing: %s '
                              '(%s, line %d, char %d)' %
                              (msg, module_doc.filename, srow, scol))
-        except (IndentationError, UnicodeDecodeError), e:
+        except IndentationError, e:
             raise ParseError('Error during parsing: %s (%s)' %
                              (e, module_doc.filename))
 
@@ -771,8 +767,6 @@ def process_line(line, parent_docs, prev_line_doc, lineno,
     elif (line[0][0] == token.NAME and
           line[0][1] in CONTROL_FLOW_KEYWORDS):
         return process_control_flow_line(*args)
-    elif line[0] == (token.NAME, '__all__') and is_append_to_all(line):
-        return process_append_to_all(*args)
     else:
         return None
         # [xx] do something with control structures like for/if?
@@ -1109,7 +1103,7 @@ def process_assignment(line, parent_docs, prev_line_doc, lineno,
     
     # Evaluate the right hand side.
     if not is_instvar:
-        rhs_val, is_alias = rhs_to_valuedoc(rhs, parent_docs, lineno)
+        rhs_val, is_alias = rhs_to_valuedoc(rhs, parent_docs)
     else:
         rhs_val, is_alias = UNKNOWN, False
 
@@ -1126,12 +1120,6 @@ def process_assignment(line, parent_docs, prev_line_doc, lineno,
 
             # Skip a special class variable.
             if lhs_name[-1] == '__slots__':
-                continue
-
-            # Handle metaclass assignment
-            if (lhs_name[-1] == '__metaclass__' and
-                isinstance(parent_docs[-1], ClassDoc)):
-                parent_docs[-1].metaclass = rhs_val
                 continue
 
             # Create the VariableDoc.
@@ -1206,7 +1194,7 @@ def lhs_is_instvar(lhs_pieces, parent_docs):
             return False
     return False
         
-def rhs_to_valuedoc(rhs, parent_docs, lineno):
+def rhs_to_valuedoc(rhs, parent_docs):
     # Dotted variable:
     try:
         rhs_name = parse_dotted_name(rhs)
@@ -1219,10 +1207,9 @@ def rhs_to_valuedoc(rhs, parent_docs, lineno):
     # Decorators:
     if (len(rhs)==2 and rhs[0][0] == token.NAME and
         isinstance(rhs[1], list)):
-        arg_val, _ = rhs_to_valuedoc(rhs[1][1:-1], parent_docs, lineno)
+        arg_val, _ = rhs_to_valuedoc(rhs[1][1:-1], parent_docs)
         if isinstance(arg_val, RoutineDoc):
-            doc = apply_decorator(DottedName(rhs[0][1]), arg_val,
-                                  parent_docs, lineno)
+            doc = apply_decorator(DottedName(rhs[0][1]), arg_val)
             doc.canonical_name = UNKNOWN
             doc.parse_repr = pp_toktree(rhs)
             return doc, False
@@ -1353,10 +1340,9 @@ def process_docstring(line, parent_docs, prev_line_doc, lineno,
             # decode_with_backslashreplace, which will map e.g.
             # "\xe9" -> u"\\xe9".
             docstring = decode_with_backslashreplace(docstring)
-            log.warning("Parsing %s (line %s): %s docstring is not a "
-                        "unicode string, but it contains non-ascii data." %
-                        (parent_docs[0].filename, lineno, 
-                         prev_line_doc.canonical_name))
+            log.warning("While parsing %s: docstring is not a unicode "
+                        "string, but it contains non-ascii data." %
+                        prev_line_doc.canonical_name)
 
     # If the modified APIDoc is an instance variable, and it has
     # not yet been added to its class's C{variables} list,
@@ -1376,12 +1362,9 @@ def process_docstring(line, parent_docs, prev_line_doc, lineno,
                 break
 
     if prev_line_doc.docstring not in (None, UNKNOWN):
-        name = prev_line_doc.canonical_name
-        if name is UNKNOWN and isinstance(prev_line_doc, VariableDoc):
-            name = prev_line_doc.name
-        log.warning("Parsing %s (line %s): %s has both a comment-docstring "
-                    "and a normal (string) docstring; ignoring the comment-"
-                    "docstring." % (parent_docs[0].filename, lineno, name))
+        log.warning("%s has both a comment-docstring and a normal "
+                    "(string) docstring; ignoring the comment-"
+                    "docstring." % prev_line_doc.canonical_name)
         
     prev_line_doc.docstring = docstring
     prev_line_doc.docstring_lineno = lineno
@@ -1449,7 +1432,7 @@ def process_funcdef(line, parent_docs, prev_line_doc, lineno,
                                     func_doc.parse_repr)
         else:
             deco_repr = UNKNOWN
-        func_doc = apply_decorator(deco_name, func_doc, parent_docs, lineno)
+        func_doc = apply_decorator(deco_name, func_doc)
         func_doc.parse_repr = deco_repr
         # [XX] Is there a reson the following should be done?  It
         # causes the grouping code to break.  Presumably the canonical
@@ -1466,18 +1449,12 @@ def process_funcdef(line, parent_docs, prev_line_doc, lineno,
     # Return the new ValueDoc.
     return func_doc
 
-def apply_decorator(decorator_name, func_doc, parent_docs, lineno):
+def apply_decorator(decorator_name, func_doc):
     # [xx] what if func_doc is not a RoutineDoc?
     if decorator_name == DottedName('staticmethod'):
         return StaticMethodDoc(**func_doc.__dict__)
     elif decorator_name == DottedName('classmethod'):
         return ClassMethodDoc(**func_doc.__dict__)
-    elif (decorator_name == DottedName('public') and
-          PUBLIC_DECORATOR_APPENDS_TO_ALL):
-        if '"' not in func_doc.canonical_name[-1]: # for security
-            quoted_func_name = '"%s"' % func_doc.canonical_name[-1]
-            append_to_all(quoted_func_name, parent_docs, lineno)
-        return func_doc.__class__(**func_doc.__dict__) # make a copy.
     elif DEFAULT_DECORATOR_BEHAVIOR == 'transparent':
         return func_doc.__class__(**func_doc.__dict__) # make a copy.
     elif DEFAULT_DECORATOR_BEHAVIOR == 'opaque':
@@ -1571,9 +1548,8 @@ def process_classdef(line, parent_docs, prev_line_doc, lineno,
             for base_name in parse_classdef_bases(line[2]):
                 class_doc.bases.append(find_base(base_name, parent_docs))
         except ParseError, e:
-            log.warning("Parsing %s (line %s): Unable to extract "
-                        "the base list for class '%s'." %
-                        (parent_docs[0].filename, lineno, canonical_name))
+            log.warning("Unable to extract the base list for %s: %s" %
+                        (canonical_name, e))
             class_doc.bases = UNKNOWN
     else:
         class_doc.bases = []
@@ -1582,7 +1558,17 @@ def process_classdef(line, parent_docs, prev_line_doc, lineno,
     if class_doc.bases is not UNKNOWN:
         for basedoc in class_doc.bases:
             if isinstance(basedoc, ClassDoc):
-                basedoc.subclasses.append(class_doc)
+                # This test avoids that a subclass gets listed twice when
+                # both introspection and parsing.
+                # [XXX] This check only works because currently parsing is
+                # always performed just after introspection of the same
+                # class. A more complete fix shuld be independent from
+                # calling order; probably the subclasses list should be
+                # replaced by a ClassDoc set or a {name: ClassDoc} mapping.
+                if (basedoc.subclasses
+                    and basedoc.subclasses[-1].canonical_name
+                        != class_doc.canonical_name):
+                    basedoc.subclasses.append(class_doc)
     
     # If the preceeding comment includes a docstring, then add it.
     add_docstring_from_comments(class_doc, comments)
@@ -1648,69 +1634,6 @@ def find_base(name, parent_docs):
         return _proxy_base(proxy_for=base_var.imported_from)
     else:
         return _proxy_base(parse_repr=str(name))
-
-#/////////////////////////////////////////////////////////////////
-# Line handler: append to all
-#/////////////////////////////////////////////////////////////////
-
-def process_append_to_all(line, parent_docs, prev_line_doc, lineno,
-                          comments, decorators, encoding):
-    """
-    The line handler for __all__.append() lines; either of:
-
-        >>> __all__.append('name')
-        >>> __all__ += ['name']
-
-    This handler looks up the value of the variable C{__all__} in
-    parent_docs; and if it is found, and has a list-of-strings value,
-    the handler appends the new name.
-    """
-    # Extract the string to be appended
-    assert line[-1][1][0] == token.STRING
-    append_to_all(line[-1][1][1], parent_docs, lineno)
-
-def append_to_all(name, parent_docs, lineno):
-    all_var = lookup_name('__all__', parent_docs)
-    
-    error = None
-    if all_var is None or all_var.value in (None, UNKNOWN):
-        error = "variable __all__ not found."
-    else:
-        try:
-            # Make sure we can parse the __all__ value.
-            parse_string_list(all_var.value.toktree, True)
-
-            # Add the new name to __all__.
-            if len(all_var.value.toktree[0]) > 2:
-                all_var.value.toktree[0].insert(-1, (token.OP, ','))
-            all_var.value.toktree[0].insert(-1, (token.STRING, name))
-            all_var.value.parse_repr = pp_toktree(all_var.value.toktree)
-        except ParseError:
-            error = "unable to parse the contents of __all__"
-
-    if error:
-        log.warning("Parsing %s (line %s): while processing an __all__"
-                    ".append() statement or @public decorator: %s" %
-                    (parent_docs[0].filename, lineno, error))
-    
-def is_append_to_all(line):
-    """
-    Check if a line is an __all__.append line()
-    @see: L{process_append_to_all}
-    """
-    # __all__.append(string)
-    if (len(line) == 4 and line[0] == (token.NAME, '__all__') and
-        line[1] == (token.OP, '.') and line[2] == (token.NAME, 'append') and
-        isinstance(line[3], list) and len(line[3]) == 3 and
-        line[3][0] == (token.OP, '(') and line[3][1][0] == token.STRING):
-        return True
-
-    # __all__ += [string]
-    if (len(line) == 3 and line[0] == (token.NAME, '__all__') and
-        line[1] == (token.OP, '+=') and isinstance(line[2], list) and
-        len(line[2]) == 3 and line[2][0][1] in '[(' and
-        line[2][1][0] == token.STRING):
-        return True
 
 #/////////////////////////////////////////////////////////////////
 #{ Parsing
@@ -1897,12 +1820,10 @@ def parse_string(elt_list):
         raise ParseError("Expected a string")
 
 # ['1', 'b', 'c']
-def parse_string_list(elt_list, require_sequence=False):
-    if (len(elt_list) == 1 and isinstance(elt_list[0], list) and
+def parse_string_list(elt_list):
+    if (len(elt_list) == 1 and isinstance(elt_list, list) and
         elt_list[0][0][1] in ('(', '[')):
         elt_list = elt_list[0][1:-1]
-    elif require_sequence:
-        raise ParseError("Expected a sequence")
 
     string_list = []
     for string_elt in split_on(elt_list, (token.OP, ',')):

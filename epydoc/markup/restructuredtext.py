@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [06/28/03 02:52 AM]
-# $Id$
+# $Id: restructuredtext.py 1661 2007-11-07 12:59:34Z dvarrazzo $
 #
 
 """
@@ -89,10 +89,8 @@ from epydoc.markup import *
 from epydoc.apidoc import ModuleDoc, ClassDoc
 from epydoc.docwriter.dotgraph import *
 from epydoc.docwriter.xlink import ApiLinkReader
-from epydoc.util import wordwrap, plaintext_to_html, plaintext_to_latex
 from epydoc.markup.doctest import doctest_to_html, doctest_to_latex, \
-                                  HTMLDoctestColorizer, \
-                                  LaTeXDoctestColorizer
+                                  HTMLDoctestColorizer
 
 #: A dictionary whose keys are the "consolidated fields" that are
 #: recognized by epydoc; and whose values are the corresponding epydoc
@@ -199,13 +197,11 @@ class ParsedRstDocstring(ParsedDocstring):
         self._document.walkabout(visitor)
         return ''.join(visitor.body)
 
-    def to_latex(self, docstring_linker, directory=None,
-                 docindex=None, context=None, **options):
+    def to_latex(self, docstring_linker, **options):
         # Inherit docs
-        visitor = _EpydocLaTeXTranslator(self._document, docstring_linker,
-                                         directory, docindex, context)
+        visitor = _EpydocLaTeXTranslator(self._document, docstring_linker)
         self._document.walkabout(visitor)
-        return ''.join(visitor.body).strip()+'\n'
+        return ''.join(visitor.body)
 
     def to_plaintext(self, docstring_linker, **options):
         # This is should be replaced by something better:
@@ -308,10 +304,10 @@ class _SummaryExtractor(NodeVisitor):
         # Extract the first sentence.
         for child in node:
             if isinstance(child, docutils.nodes.Text):
-                m = self._SUMMARY_RE.match(child)
+                m = self._SUMMARY_RE.match(child.data)
                 if m:
                     summary_pieces.append(docutils.nodes.Text(m.group(1)))
-                    other = child[m.end():]
+                    other = child.data[m.end():]
                     if other and not other.isspace():
                         self.other_docs = True
                     break
@@ -493,11 +489,10 @@ class _SplitFieldsTranslator(NodeVisitor):
             if (len(fbody[0]) > 0 and
                 isinstance(fbody[0][0], docutils.nodes.Text)):
                 child = fbody[0][0]
-                if child[:1] in ':-':
-                    child = child[1:].lstrip()
-                elif child[:2] in (' -', ' :'):
-                    child = child[2:].lstrip()
-                fbody[0][0] = docutils.nodes.Text(child)
+                if child.data[:1] in ':-':
+                    child.data = child.data[1:].lstrip()
+                elif child.data[:2] in (' -', ' :'):
+                    child.data = child.data[2:].lstrip()
 
             # Wrap the field body, and add a new field
             self._add_field(tagname, arg, fbody)
@@ -541,84 +536,47 @@ class _SplitFieldsTranslator(NodeVisitor):
 
 def latex_head_prefix():
     document = new_document('<fake>')
-    translator = _EpydocLaTeXTranslator(document)
+    translator = _EpydocLaTeXTranslator(document, None)
     return translator.head_prefix
     
-_TARGET_RE = re.compile(r'^(.*?)\s*<(?:URI:|URL:)?([^<>]+)>$')
-
-class _EpydocDocumentClass:
-    SECTIONS = ['EpydocUserSection',
-                'EpydocUserSubsection',
-                'EpydocUserSubsubsection']
-    def section(self, level):
-        if level <= len(self.SECTIONS):
-            return self.SECTIONS[level-1]
-        else:
-            return self.SECTIONS[-1]
-
 class _EpydocLaTeXTranslator(LaTeXTranslator):
     settings = None
-    def __init__(self, document, docstring_linker=None, directory=None,
-                 docindex=None, context=None):
+    def __init__(self, document, docstring_linker):
         # Set the document's settings.
         if self.settings is None:
             settings = OptionParser([LaTeXWriter()]).get_default_values()
             settings.output_encoding = 'utf-8'
-            
-            # This forces eg \EpydocUserSection rather than
-            # \EpydocUserSEction*:
-            settings.use_latex_toc = True
-            
             self.__class__.settings = settings
         document.settings = self.settings
 
         LaTeXTranslator.__init__(self, document)
         self._linker = docstring_linker
-        self._directory = directory
-        self._docindex = docindex
-        self._context = context
 
-        # Use custom section names.
-        self.d_class = _EpydocDocumentClass()
+        # Start at section level 3.  (Unfortunately, we now have to
+        # set a private variable to make this work; perhaps the standard
+        # latex translator should grow an official way to spell this?)
+        self.section_level = 3
+        self._section_number = [0]*self.section_level
 
     # Handle interpreted text (crossreferences)
     def visit_title_reference(self, node):
-        m = _TARGET_RE.match(node.astext())
-        if m: text, target = m.groups()
-        else: target = text = node.astext()
-        text = plaintext_to_latex(text)
-        xref = self._linker.translate_identifier_xref(target, text)
+        target = self.encode(node.astext())
+        xref = self._linker.translate_identifier_xref(target, target)
         self.body.append(xref)
         raise SkipNode()
 
     def visit_document(self, node): pass
     def depart_document(self, node): pass
 
+    # For now, just ignore dotgraphs. [XXX]
     def visit_dotgraph(self, node):
-        if self._directory is None: raise SkipNode() # [xx] warning?
-        
-        # Generate the graph.
-        graph = node.graph(self._docindex, self._context, self._linker)
-        if graph is None: raise SkipNode()
-        
-        # Write the graph.
-        self.body.append(graph.to_latex(self._directory))
+        log.warning("Ignoring dotgraph in latex output (dotgraph "
+                    "rendering for latex not implemented yet).")
         raise SkipNode()
-
+    
     def visit_doctest_block(self, node):
-        pysrc = node[0].astext()
-        if node.get('codeblock'):
-            self.body.append(LaTeXDoctestColorizer().colorize_codeblock(pysrc))
-        else:
-            self.body.append(doctest_to_latex(pysrc))
+        self.body.append(doctest_to_latex(node[0].astext()))
         raise SkipNode()
-
-    def visit_admonition(self, node, name=''):
-        self.body.append('\\begin{reSTadmonition}[%s]\n' %
-                         self.language.labels[name])
-        
-    def depart_admonition(self, node=None):
-        self.body.append('\\end{reSTadmonition}\n');
 
 class _EpydocHTMLTranslator(HTMLTranslator):
     settings = None
@@ -640,11 +598,8 @@ class _EpydocHTMLTranslator(HTMLTranslator):
 
     # Handle interpreted text (crossreferences)
     def visit_title_reference(self, node):
-        m = _TARGET_RE.match(node.astext())
-        if m: text, target = m.groups()
-        else: target = text = node.astext()
-        text = plaintext_to_latex(text)
-        xref = self._linker.translate_identifier_xref(target, text)
+        target = self.encode(node.astext())
+        xref = self._linker.translate_identifier_xref(target, target)
         self.body.append(xref)
         raise SkipNode()
 
@@ -701,14 +656,16 @@ class _EpydocHTMLTranslator(HTMLTranslator):
                                        **attributes)
 
     def visit_dotgraph(self, node):
-        if self._directory is None: raise SkipNode() # [xx] warning?
+        if self._directory is None: return # [xx] warning?
         
         # Generate the graph.
         graph = node.graph(self._docindex, self._context, self._linker)
-        if graph is None: raise SkipNode()
+        if graph is None: return
         
         # Write the graph.
-        self.body.append(graph.to_html(self._directory))
+        image_url = '%s.gif' % graph.uid
+        image_file = os.path.join(self._directory, image_url)
+        self.body.append(graph.to_html(image_file, image_url))
         raise SkipNode()
 
     def visit_doctest_block(self, node):

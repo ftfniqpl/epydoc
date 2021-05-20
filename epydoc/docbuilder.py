@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: docbuilder.py 1683 2008-01-29 22:17:39Z edloper $
 
 """
 Construct data structures that encode the API documentation for Python
@@ -70,7 +70,6 @@ __docformat__ = 'epytext en'
 import sys, os, os.path, __builtin__, imp, re, inspect
 from epydoc.apidoc import *
 from epydoc.docintrospecter import introspect_docs
-from epydoc.docintrospecter import get_value_from_filename, get_value_from_name
 from epydoc.docparser import parse_docs, ParseError
 from epydoc.docstringparser import parse_docstring
 from epydoc import log
@@ -147,8 +146,7 @@ class BuildOptions:
 
 
 def build_doc(item, introspect=True, parse=True, add_submodules=True,
-              exclude_introspect=None, exclude_parse=None,
-              inherit_from_object=False):
+              exclude_introspect=None, exclude_parse=None):
     """
     Build API documentation for a given item, and return it as
     an L{APIDoc} object.
@@ -171,13 +169,11 @@ def build_doc(item, introspect=True, parse=True, add_submodules=True,
     """
     docindex = build_doc_index([item], introspect, parse, add_submodules,
                                exclude_introspect=exclude_introspect,
-                               exclude_parse=exclude_parse,
-                               inherit_from_object=inherit_from_object)
+                               exclude_parse=exclude_parse)
     return docindex.root[0]
 
 def build_doc_index(items, introspect=True, parse=True, add_submodules=True,
-                    exclude_introspect=None, exclude_parse=None,
-                    inherit_from_object=False):
+                    exclude_introspect=None, exclude_parse=None):
     """
     Build API documentation for the given list of items, and
     return it in the form of a L{DocIndex}.
@@ -207,12 +203,7 @@ def build_doc_index(items, introspect=True, parse=True, add_submodules=True,
         return None
 
     # Get the basic docs for each item.
-    log.start_progress('Building documentation')
-    if introspect:
-        # Import everything before we introspect anything.
-        _import_docs_from_items(items, options)
     doc_pairs = _get_docs_from_items(items, options)
-    log.end_progress()
 
     # Merge the introspection & parse docs.
     if options.parse and options.introspect:
@@ -301,7 +292,7 @@ def build_doc_index(items, introspect=True, parse=True, add_submodules=True,
         if isinstance(val_doc, ClassDoc):
             percent = float(i)/len(valdocs)
             log.progress(percent, val_doc.canonical_name)
-            inherit_docs(val_doc, inherit_from_object)
+            inherit_docs(val_doc)
     log.end_progress()
 
     # Initialize the groups & sortedvars attributes.
@@ -326,70 +317,13 @@ def _report_valdoc_progress(i, val_doc, val_docs):
         log.progress(float(i)/len(val_docs), val_doc.canonical_name)
 
 #/////////////////////////////////////////////////////////////////
-# Pre-Import
-#/////////////////////////////////////////////////////////////////
-
-def _import_docs_from_items(items, options):
-    for item in items:
-        # Make sure the item's module is imported.
-        if isinstance(item, basestring):
-            if os.path.isfile(item):
-                _do_import(item, options)
-            elif is_package_dir(item):
-                pkg = os.path.abspath(os.path.join(item, '__init__.py'))
-                val = _do_import(pkg, options)
-                if options.add_submodules and inspect.ismodule(val):
-                    _import_docs_from_package(val, options)
-            elif is_pyname(item):
-                if options.must_introspect(item):
-                    try:
-                        val = get_value_from_name(item)
-                        if options.add_submodules and inspect.ismodule(val):
-                            _import_docs_from_package(val, options)
-                    except ImportError, e: pass
-
-def _import_docs_from_package(pkg, options):
-    subpackage_filenames = set()
-    module_filenames = {}
-    pkg_path = getattr(pkg, '__path__', ())
-    for subdir in pkg_path:
-        if os.path.isdir(subdir):
-            for name in os.listdir(subdir):
-                filename = os.path.join(subdir, name)
-                if is_module_file(filename):
-                    basename = os.path.splitext(filename)[0]
-                    if os.path.split(basename)[1] != '__init__':
-                        module_filenames[basename] = filename
-                elif is_package_dir(filename):
-                    subpackage_filenames.add(os.path.join(filename,
-                                                          '__init__.py'))
-
-    for filename in module_filenames.values():
-        _do_import(filename, options, pkg.__name__)
-    for subpackage_filename in subpackage_filenames:
-        subpackage = _do_import(subpackage_filename, options, pkg.__name__)
-        if inspect.ismodule(subpackage):
-            _import_docs_from_package(subpackage, options)
-
-def _do_import(filename, options, parent=None):
-    filename = os.path.abspath(filename)
-    modulename = os.path.splitext(os.path.split(filename)[1])[0]
-    if modulename == '__init__':
-        modulename = os.path.split(os.path.split(filename)[0])[1]
-    if parent:
-        modulename = DottedName(parent, modulename)
-    if options.must_introspect(modulename):
-        log.progress(0, 'Importing %s' % modulename)
-        #log.debug('importing %r (%s)' % (filename, modulename))
-        try: return get_value_from_filename(filename)
-        except ImportError, e: return None
-
-#/////////////////////////////////////////////////////////////////
 # Documentation Generation
 #/////////////////////////////////////////////////////////////////
 
 def _get_docs_from_items(items, options):
-    # Used to estimate progress when there are packages:
+
+    # Start the progress bar.
+    log.start_progress('Building documentation')
     progress_estimator = _ProgressEstimator(items)
 
     # Check for duplicate item names.
@@ -463,6 +397,7 @@ def _get_docs_from_items(items, options):
             doc_pairs += _get_docs_from_submodules(
                 item, doc_pairs[-1], options, progress_estimator)
 
+    log.end_progress()
     return doc_pairs
 
 def _get_docs_from_pyobject(obj, options, progress_estimator):
@@ -612,7 +547,9 @@ def _get_docs_from_module_file(filename, options, progress_estimator,
         try:
             parse_doc = parse_docs(
                 filename=filename, context=parent_docs[1])
-        except (ParseError, ImportError, IOError, OSError), e:
+        except ParseError, e:
+            parse_error = str(e)
+        except ImportError, e:
             parse_error = str(e)
 
     # Report any errors we encountered.
@@ -1324,10 +1261,9 @@ def find_overrides(class_doc):
                 class_doc.variables[name].overrides = var_doc
     
     
-def inherit_docs(class_doc, inherit_from_object):
+def inherit_docs(class_doc):
     for base_class in list(class_doc.mro(warn_about_bad_bases=True)):
         if base_class == class_doc: continue
-        if base_class.pyval is object and not inherit_from_object: continue
 
         # Inherit any groups.  Place them *after* this class's groups,
         # so that any groups that are important to this class come

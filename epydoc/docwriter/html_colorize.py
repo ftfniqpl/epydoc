@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [10/16/02 09:49 PM]
-# $Id$
+# $Id: html_colorize.py 1674 2008-01-29 06:03:36Z edloper $
 #
 
 """
@@ -488,12 +488,6 @@ class PythonSourceColorizer:
         except LookupError:
             coding = 'iso-8859-1'
             html = html.decode(coding).encode('ascii', 'xmlcharrefreplace')
-        except UnicodeDecodeError, e:
-            log.warning("Unicode error while generating syntax-highlighted "
-                        "source code: %s (%s)" % (e, self.module_filename))
-            html = html.decode(coding, 'ignore').encode(
-                'ascii', 'xmlcharrefreplace')
-            
 
         # Call expandto.
         html += PYSRC_EXPANDTO_JAVASCRIPT

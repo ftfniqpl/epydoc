@@ -67,8 +67,8 @@ API Linking Options::
 .. _Docutils: http://docutils.sourceforge.net/
 """
 
-# $Id$
-__version__ = "$Revision$"[11:-2]
+# $Id: xlink.py 1586 2007-03-14 01:53:42Z dvarrazzo $
+__version__ = "$Revision: 1586 $"[11:-2]
 __author__ = "Daniele Varrazzo"
 __copyright__ = "Copyright (C) 2007 by Daniele Varrazzo"
 __docformat__ = 'reStructuredText en'
@@ -364,8 +364,6 @@ except ImportError:
     docutils = roles = nodes = utils = None
     class Reader: settings_spec = ()
 
-_TARGET_RE = re.compile(r'^(.*?)\s*<(?:URI:|URL:)?([^<>]+)>$')
-
 def create_api_role(name, problematic):
     """
     Create and register a new role to create links for an API documentation.
@@ -386,18 +384,13 @@ def create_api_role(name, problematic):
         if docutils is None:
             raise AssertionError('requires docutils')
 
-        # Check if there's separate text & targets
-        m = _TARGET_RE.match(text)
-        if m: text, target = m.groups()
-        else: target = text
-
         # node in monotype font
         text = utils.unescape(text)
         node = nodes.literal(rawtext, text, **options)
 
         # Get the resolver from the register and create an url from it.
         try:
-            url = api_register[name].get_url(target)
+            url = api_register[name].get_url(text)
         except IndexError, exc:
             msg = inliner.reporter.warning(str(exc), line=lineno)
             if problematic:

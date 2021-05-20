@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: plaintext.py 1473 2007-02-13 19:46:05Z edloper $
 
 """
 Plaintext output generation.
@@ -19,7 +19,6 @@ class PlaintextWriter:
         result = []
         out = result.append
 
-        self._show_private = options.get('show_private', True)
         self._cols = options.get('cols', 75)
 
         try:
@@ -39,6 +38,9 @@ class PlaintextWriter:
         return ''.join(result)
 
     def write_module(self, out, mod_doc):
+        #for n,v in mod_doc.variables.items():
+        #    print n, `v.value`, `v.value.value`
+        
         # The cannonical name of the module.
         out(self.section('Module Name'))
         out('    %s\n\n' % mod_doc.canonical_name)
@@ -72,7 +74,7 @@ class PlaintextWriter:
                 s += str(base.canonical_name[-1])
             else:
                 s += str(base.canonical_name)
-            if i < len(class_doc.bases)-1: s += ', '
+            if i < len(class_doc.bases)-1: out(', ')
         return s+')'
 
     def write_class(self, out, class_doc, name=None, prefix='', verbose=True):
@@ -223,9 +225,6 @@ class PlaintextWriter:
 
         for i, var_doc in enumerate(var_docs):
             val_doc, name = var_doc.value, var_doc.name
-
-            if not var_doc.is_public and not self._show_private:
-                continue
 
             if verbose:
                 out(prefix+'\n')

@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: dotgraph.py 1663 2007-11-07 15:29:47Z dvarrazzo $
 
 """
 Render Graphviz directed graphs as images.  Below are some examples.
@@ -22,28 +22,19 @@ __docformat__ = 'restructuredtext'
 
 import re
 import sys
-import tempfile
 from epydoc import log
 from epydoc.apidoc import *
 from epydoc.util import *
 from epydoc.compat import * # Backwards compatibility
 
-#: Should the dot2tex module be used to render dot graphs to latex
-#: (if it's available)?  This is experimental, and not yet working,
-#: so it should be left False for now.
-USE_DOT2TEX = False
-
-#: colors for graphs of APIDocs
-COLOR = dict(
-    MODULE_BG = '#d8e8ff',
-    CLASS_BG = '#d8ffe8',
-    SELECTED_BG = '#ffd0d0',
-    BASECLASS_BG = '#e0b0a0',
-    SUBCLASS_BG = '#e0b0a0',
-    UNDOCUMENTED_BG = '#c0c0c0',
-    ROUTINE_BG = '#e8d0b0', # not used
-    INH_LINK = '#800000',
-    )
+# colors for graphs of APIDocs
+MODULE_BG = '#d8e8ff'
+CLASS_BG = '#d8ffe8'
+SELECTED_BG = '#ffd0d0'
+BASECLASS_BG = '#e0b0a0'
+SUBCLASS_BG = '#e0b0a0'
+ROUTINE_BG = '#e8d0b0' # maybe?
+INH_LINK_COLOR = '#800000'
 
 ######################################################################
 #{ Dot Graphs
@@ -52,7 +43,7 @@ COLOR = dict(
 DOT_COMMAND = 'dot'
 """The command that should be used to spawn dot"""
 
-class DotGraph(object):
+class DotGraph:
     """
     A ``dot`` directed graph.  The contents of the graph are
     constructed from the following instance variables:
@@ -85,17 +76,6 @@ class DotGraph(object):
     DEFAULT_NODE_DEFAULTS={'fontsize':10, 'fontname': 'Helvetica'}
     DEFAULT_EDGE_DEFAULTS={'fontsize':10, 'fontname': 'Helvetica'}
     
-    DEFAULT_LATEX_SIZE="6.25,8"
-    """The default minimum size in inches (width,height) for graphs
-    when rendering with `to_latex()`"""
-    
-    DEFAULT_HTML_SIZE="10,20"
-    """The default minimum size in inches (width,height) for graphs
-    when rendering with `to_html()`"""
-    
-    DEFAULT_HTML_IMAGE_FORMAT = 'gif'
-    """The default format used to generate images by `to_html()`"""
-    
     def __init__(self, title, body='', node_defaults=None,
                  edge_defaults=None, caption=None):
         """
@@ -122,7 +102,7 @@ class DotGraph(object):
         graph.
         
         :type: ``str``"""
-
+        
         self.node_defaults = node_defaults or self.DEFAULT_NODE_DEFAULTS
         """Default attribute values for nodes."""
         
@@ -148,91 +128,19 @@ class DotGraph(object):
             self.uid = '%s_%s' % (self.uid, n)
         self._uids.add(self.uid)
 
-    def to_latex(self, directory, center=True, size=None):
-        """
-        Return the LaTeX code that should be used to display this
-        graph.  Two image files will be written: image_file+'.eps'
-        and image_file+'.pdf'.
-
-        :param size: The maximum size for the generated image, in
-            inches.  In particular, if ``size`` is ``\"w,h\"``, then
-            this will add a line ``size=\"w,h\"`` to the dot graph.
-            Defaults to `DEFAULT_LATEX_SIZE`.
-        :type size: ``str``
-        """
-        eps_file = os.path.join(directory, self.uid+'.eps')
-        pdf_file = os.path.join(directory, self.uid+'.pdf')
-        size = size or self.DEFAULT_LATEX_SIZE
-        # Use dot2tex if requested (and if it's available).
-        # Otherwise, render it to an image file & use \includgraphics.
-        if USE_DOT2TEX and dot2tex is not None:
-            try: return self._to_dot2tex(center, size)
-            except KeyboardInterrupt: raise
-            except:
-                raise
-                log.warning('dot2tex failed; using dot instead')
-
-        # Render the graph in postscript.
-        ps = self._run_dot('-Tps', size=size)
-        # Write the postscript output.
-        psfile = open(eps_file, 'wb')
-        psfile.write('%!PS-Adobe-2.0 EPSF-1.2\n')
-        psfile.write(ps)
-        psfile.close()
-        # Use ps2pdf to generate the pdf output.
-        try: run_subprocess(('ps2pdf', '-dEPSCrop', eps_file, pdf_file))
-        except RunSubprocessError, e:
-            log.warning("Unable to render Graphviz dot graph (%s):\n"
-                            "ps2pdf failed." % self.title)
-            return None
-        
-        # Generate the latex code to display the graph.
-        s = '  \\includegraphics{%s}\n' % self.uid
-        if center: s = '\\begin{center}\n%s\\end{center}\n' % s
-        return s
-
-    def _to_dot2tex(self, center=True, size=None):
-        # requires: pgf, latex-xcolor.
-        from dot2tex import dot2tex
-        if 0: # DEBUG
-            import logging
-            log = logging.getLogger("dot2tex")
-            log.setLevel(logging.DEBUG)
-            console = logging.StreamHandler()
-            formatter = logging.Formatter('%(levelname)-8s %(message)s')
-            console.setFormatter(formatter)
-            log.addHandler(console)
-        options = dict(crop=True, autosize=True, figonly=True, debug=True)
-        conv = dot2tex.Dot2PGFConv(options)
-        s = conv.convert(self.to_dotfile(size=size))
-        conv.dopreproc = False
-        s = conv.convert(s)
-        if center: s = '\\begin{center}\n%s\\end{center}\n' % s
-        return s
-
-    def to_html(self, directory, center=True, size=None):
+    def to_html(self, image_file, image_url, center=True):
         """
         Return the HTML code that should be uesd to display this graph
         (including a client-side image map).
         
         :param image_url: The URL of the image file for this graph;
             this should be generated separately with the `write()` method.
-        :param size: The maximum size for the generated image, in
-            inches.  In particular, if ``size`` is ``\"w,h\"``, then
-            this will add a line ``size=\"w,h\"`` to the dot graph.
-            Defaults to `DEFAULT_HTML_SIZE`.
-        :type size: ``str``
         """
-        image_url = '%s.%s' % (self.uid, self.DEFAULT_HTML_IMAGE_FORMAT)
-        image_file = os.path.join(directory, image_url)
-        size = size or self.DEFAULT_HTML_SIZE
         # If dotversion >1.8.10, then we can generate the image and
         # the cmapx with a single call to dot.  Otherwise, we need to
         # run dot twice.
         if get_dot_version() > [1,8,10]:
-            cmapx = self._run_dot('-T%s' % self._pick_language(image_file),
-                                  '-o%s' % image_file,
-                                  '-Tcmapx', size=size)
+            cmapx = self._run_dot('-Tgif', '-o%s' % image_file, '-Tcmapx')
             if cmapx is None: return '' # failed to render
         else:
             if not self.write(image_file):
@@ -297,8 +205,7 @@ class DotGraph(object):
 
         # Link xrefs in body
         def subfunc(m):
-            try: url = docstring_linker.url_for(m.group(1))
-            except NotImplementedError: url = ''
+            url = docstring_linker.url_for(m.group(1))
             if url: return 'href="%s"%s' % (url, m.group(2))
             else: return ''
         self.body = re.sub("href\s*=\s*['\"]?<([\w\.]+)>['\"]?\s*(,?)",
@@ -309,91 +216,54 @@ class DotGraph(object):
         if 'href' in attribs:
             m = re.match(r'^<([\w\.]+)>$', attribs['href'])
             if m:
-                try: url = docstring_linker.url_for(m.group(1))
-                except NotImplementedError: url = ''
+                url = docstring_linker.url_for(m.group(1))
                 if url: attribs['href'] = url
                 else: del attribs['href']
-
-    def write(self, filename, language=None, size=None):
+                
+    def write(self, filename, language='gif'):
         """
         Render the graph using the output format `language`, and write
         the result to `filename`.
         
         :return: True if rendering was successful.
-        :param size: The maximum size for the generated image, in
-            inches.  In particular, if ``size`` is ``\"w,h\"``, then
-            this will add a line ``size=\"w,h\"`` to the dot graph.
-            If not specified, no size line will be added.
-        :type size: ``str``
         """
-        if language is None: language = self._pick_language(filename)
         result = self._run_dot('-T%s' % language,
-                               '-o%s' % filename,
-                               size=size)
+                               '-o%s' % filename)
         # Decode into unicode, if necessary.
         if language == 'cmapx' and result is not None:
             result = result.decode('utf-8')
         return (result is not None)
 
-    def _pick_language(self, filename):
-            ext = os.path.splitext(filename)[1]
-            if ext in ('.gif', '.png', '.jpg', '.jpeg'):
-                return ext[1:]
-            else:
-                return 'gif'
-                
-    def render(self, language=None, size=None):
+    def render(self, language='gif'):
         """
         Use the ``dot`` command to render this graph, using the output
         format `language`.  Return the result as a string, or ``None``
         if the rendering failed.
-        
-        :param size: The maximum size for the generated image, in
-            inches.  In particular, if ``size`` is ``\"w,h\"``, then
-            this will add a line ``size=\"w,h\"`` to the dot graph.
-            If not specified, no size line will be added.
-        :type size: ``str``
         """
-        return self._run_dot('-T%s' % language, size=size)
+        return self._run_dot('-T%s' % language)
 
-    def _run_dot(self, *options, **kwparam):
-        if get_dot_version() == (0,): return None
+    def _run_dot(self, *options):
         try:
             result, err = run_subprocess((DOT_COMMAND,)+options,
-                                         self.to_dotfile(**kwparam))
+                                         self.to_dotfile())
             if err: log.warning("Graphviz dot warning(s):\n%s" % err)
         except OSError, e:
-            log.warning("Unable to render Graphviz dot graph (%s):\n%s" %
-                        (self.title, e))
-            import tempfile, epydoc
-            if epydoc.DEBUG:
-                filename = tempfile.mktemp('.dot')
-                out = open(filename, 'wb')
-                out.write(self.to_dotfile(**kwparam))
-                out.close()
-                log.debug('Failed dot graph written to %s' % filename)
+            log.warning("Unable to render Graphviz dot graph:\n%s" % e)
+            #log.debug(self.to_dotfile())
             return None
 
         return result
 
-    def to_dotfile(self, size=None):
+    def to_dotfile(self):
         """
         Return the string contents of the dot file that should be used
         to render this graph.
-        
-        :param size: The maximum size for the generated image, in
-            inches.  In particular, if ``size`` is ``\"w,h\"``, then
-            this will add a line ``size=\"w,h\"`` to the dot graph.
-            If not specified, no size line will be added.
-        :type size: ``str``
         """
         lines = ['digraph %s {' % self.uid,
                  'node [%s]' % ','.join(['%s="%s"' % (k,v) for (k,v)
                                          in self.node_defaults.items()]),
                  'edge [%s]' % ','.join(['%s="%s"' % (k,v) for (k,v)
                                          in self.edge_defaults.items()])]
-        if size:
-            lines.append('size="%s"' % size)
         if self.body:
             lines.append(self.body)
         lines.append('/* Nodes */')
@@ -407,7 +277,7 @@ class DotGraph(object):
         # Default dot input encoding is UTF-8
         return u'\n'.join(lines).encode('utf-8')
 
-class DotGraphNode(object):
+class DotGraphNode:
     _next_id = 0
     def __init__(self, label=None, html_label=None, **attribs):
         if label is not None and html_label is not None:
@@ -415,8 +285,8 @@ class DotGraphNode(object):
         if label is not None: attribs['label'] = label
         self._html_label = html_label
         self._attribs = attribs
-        self.id = DotGraphNode._next_id
-        DotGraphNode._next_id += 1
+        self.id = self.__class__._next_id
+        self.__class__._next_id += 1
         self.port = None
 
     def __getitem__(self, attr):
@@ -441,7 +311,7 @@ class DotGraphNode(object):
         if attribs: attribs = ' [%s]' % (','.join(attribs))
         return 'node%d%s' % (self.id, attribs)
 
-class DotGraphEdge(object):
+class DotGraphEdge:
     def __init__(self, start, end, label=None, **attribs):
         """
         :type start: `DotGraphNode`
@@ -516,8 +386,9 @@ class DotGraphUmlClassNode(DotGraphNode):
       - show/hide attribute types
       - use qualifiers
     """
+
     def __init__(self, class_doc, linker, context, collapsed=False,
-                 bgcolor=COLOR['CLASS_BG'], **options):
+                 bgcolor=CLASS_BG, **options):
         """
         Create a new `DotGraphUmlClassNode` based on the class
         `class_doc`.
@@ -549,20 +420,13 @@ class DotGraphUmlClassNode(DotGraphNode):
           - `max_attributes`: The maximum number of attributes that
             should be listed in the attribute box.  If the class has
             more than this number of attributes, some will be
-            ellided.  Ellipsis is marked with ``'...'``.  (Default: 10)
+            ellided.  Ellipsis is marked with ``'...'``.
           - `max_operations`: The maximum number of operations that
-            should be listed in the operation box. (Default: 5)
+            should be listed in the operation box.
           - `add_nodes_for_linked_attributes`: If true, then
             `link_attributes()` will create new a collapsed node for
             the types of a linked attributes if no node yet exists for
             that type.
-          - `show_signature_defaults`: If true, then show default
-            parameter values in method signatures; if false, then
-            hide them.  (Default: *False*)
-          - `max_signature_width`: The maximum width (in chars) for
-            method signatures.  If the signature is longer than this,
-            then it will be trunctated (with ``'...'``).  (Default:
-            *60*)
         """
         if not isinstance(class_doc, ClassDoc):
             raise TypeError('Expected a ClassDoc as 1st argument')
@@ -599,31 +463,20 @@ class DotGraphUmlClassNode(DotGraphNode):
         These should not be added to the `DotGraph`; this node will
         generate their dotfile code directly."""
 
-        self.same_rank = []
-        """List of nodes that should have the same rank as this one.
-        (Used for nodes that are created by _link_attributes)."""
-
-        # Keyword options:
-        self._show_signature_defaults = options.get(
-            'show_signature_defaults', False)
-        self._max_signature_width = options.get(
-            'max_signature_width', 60)
-
         # Initialize operations & attributes lists.
         show_private = options.get('show_private_vars', False)
         show_magic = options.get('show_magic_vars', True)
         show_inherited = options.get('show_inherited_vars', False)
-        if class_doc.sorted_variables not in (None, UNKNOWN):
-            for var in class_doc.sorted_variables:
-                name = var.canonical_name[-1]
-                if ((not show_private and var.is_public == False) or
-                    (not show_magic and re.match('__\w+__$', name)) or
-                    (not show_inherited and var.container != class_doc)):
-                    pass
-                elif isinstance(var.value, RoutineDoc):
-                    self.operations.append(var)
-                else:
-                    self.attributes.append(var)
+        for var in class_doc.sorted_variables:
+            name = var.canonical_name[-1]
+            if ((not show_private and var.is_public == False) or
+                (not show_magic and re.match('__\w+__$', name)) or
+                (not show_inherited and var.container != class_doc)):
+                pass
+            elif isinstance(var.value, RoutineDoc):
+                self.operations.append(var)
+            else:
+                self.attributes.append(var)
 
         # Initialize our dot node settings.
         tooltip = self._summary(class_doc)
@@ -632,10 +485,9 @@ class DotGraphUmlClassNode(DotGraphNode):
             tooltip = " ".join(tooltip.split())
         else:
             tooltip = class_doc.canonical_name
-        try: url = linker.url_for(class_doc) or NOOP_URL
-        except NotImplementedError: url = NOOP_URL
-        DotGraphNode.__init__(self, tooltip=tooltip, width=0, height=0, 
-                              shape='plaintext', href=url)
+        DotGraphNode.__init__(self, tooltip=tooltip,
+                              width=0, height=0, shape='plaintext',
+                              href=linker.url_for(class_doc) or NOOP_URL)
 
     #/////////////////////////////////////////////////////////////////
     #{ Attribute Linking
@@ -663,7 +515,7 @@ class DotGraphUmlClassNode(DotGraphNode):
         r'^(None or|optional) ([\w\.]+)$|^([\w\.]+) or None$')
     """A regular expression that matches descriptions of optional types."""
     
-    def link_attributes(self, graph, nodes):
+    def link_attributes(self, nodes):
         """
         Convert any attributes with type descriptions corresponding to
         documented classes to edges.  The following type descriptions
@@ -697,9 +549,9 @@ class DotGraphUmlClassNode(DotGraphNode):
         # that var from our attribute list; otherwise, leave that var
         # in our attribute list.
         self.attributes = [var for var in self.attributes
-                           if not self._link_attribute(var, graph, nodes)]
+                           if not self._link_attribute(var, nodes)]
 
-    def _link_attribute(self, var, graph, nodes):
+    def _link_attribute(self, var, nodes):
         """
         Helper for `link_attributes()`: try to convert the attribute
         variable `var` into an edge, and add that edge to
@@ -711,19 +563,18 @@ class DotGraphUmlClassNode(DotGraphNode):
         
         # Simple type.
         m = self.SIMPLE_TYPE_RE.match(type_descr)
-        if m and self._add_attribute_edge(var, graph, nodes, m.group(1)):
+        if m and self._add_attribute_edge(var, nodes, m.group(1)):
             return True
 
         # Collection type.
         m = self.COLLECTION_TYPE_RE.match(type_descr)
-        if m and self._add_attribute_edge(var, graph, nodes, m.group(2),
+        if m and self._add_attribute_edge(var, nodes, m.group(2),
                                           headlabel='*'):
             return True
 
         # Optional type.
         m = self.OPTIONAL_TYPE_RE.match(type_descr)
-        if m and self._add_attribute_edge(var, graph, nodes,
-                                          m.group(2) or m.group(3),
+        if m and self._add_attribute_edge(var, nodes, m.group(2) or m.group(3),
                                           headlabel='0..1'):
             return True
                 
@@ -731,7 +582,7 @@ class DotGraphUmlClassNode(DotGraphNode):
         m = self.MAPPING_TYPE_RE.match(type_descr)
         if m:
             port = 'qualifier_%s' % var.name
-            if self._add_attribute_edge(var, graph, nodes, m.group(3),
+            if self._add_attribute_edge(var, nodes, m.group(3),
                                         tailport='%s:e' % port):
                 self.qualifiers.append( (m.group(2), port) )
                 return True
@@ -740,8 +591,7 @@ class DotGraphUmlClassNode(DotGraphNode):
         m = self.MAPPING_TO_COLLECTION_TYPE_RE.match(type_descr)
         if m:
             port = 'qualifier_%s' % var.name
-            if self._add_attribute_edge(var, graph, nodes, m.group(4),
-                                        headlabel='*', 
+            if self._add_attribute_edge(var, nodes, m.group(4), headlabel='*', 
                                         tailport='%s:e' % port):
                 self.qualifiers.append( (m.group(2), port) )
                 return True
@@ -749,14 +599,13 @@ class DotGraphUmlClassNode(DotGraphNode):
         # We were unable to link this attribute.
         return False
 
-    def _add_attribute_edge(self, var, graph, nodes, type_str, **attribs):
+    def _add_attribute_edge(self, var, nodes, type_str, **attribs):
         """
         Helper for `link_attributes()`: try to add an edge for the
         given attribute variable `var`.  Return ``True`` if
         successful.
         """
         # Use the type string to look up a corresponding ValueDoc.
-        if not hasattr(self.linker, 'docindex'): return False
         type_doc = self.linker.docindex.find(type_str, var)
         if not type_doc: return False
 
@@ -770,9 +619,7 @@ class DotGraphUmlClassNode(DotGraphNode):
             if self.options.get('add_nodes_for_linked_attributes', True):
                 type_node = DotGraphUmlClassNode(type_doc, self.linker,
                                                  self.context, collapsed=True)
-                self.same_rank.append(type_node)
                 nodes[type_doc] = type_node
-                graph.nodes.append(type_node)
             else:
                 return False
 
@@ -780,10 +627,9 @@ class DotGraphUmlClassNode(DotGraphNode):
         # [xx] should I set constraint=false here?
         attribs.setdefault('headport', 'body')
         attribs.setdefault('tailport', 'body')
-        try: url = self.linker.url_for(var) or NOOP_URL
-        except NotImplementedError: url = NOOP_URL
+        url = self.linker.url_for(var) or NOOP_URL
         self.edges.append(DotGraphEdge(self, type_node, label=var.name,
-                        arrowtail='odiamond', arrowhead='none', href=url,
+                        arrowhead='open', href=url,
                         tooltip=var.canonical_name, labeldistance=1.5,
                         **attribs))
         return True
@@ -824,8 +670,7 @@ class DotGraphUmlClassNode(DotGraphNode):
                       self._type_descr(var_doc.value))
         if type_descr: label += ': %s' % type_descr
         # Get the URL
-        try: url = self.linker.url_for(var_doc) or NOOP_URL
-        except NotImplementedError: url = NOOP_URL
+        url = self.linker.url_for(var_doc) or NOOP_URL
         # Construct & return the pseudo-html code
         return self._ATTRIBUTE_CELL % (url, self._tooltip(var_doc), label)
 
@@ -845,11 +690,8 @@ class DotGraphUmlClassNode(DotGraphNode):
         if func_doc.vararg: args.append('*'+func_doc.vararg)
         if func_doc.kwarg: args.append('**'+func_doc.kwarg)
         label = '%s(%s)' % (var_doc.name, ', '.join(args))
-        if len(label) > self._max_signature_width:
-            label = label[:self._max_signature_width-4]+'...)'
         # Get the URL
-        try: url = self.linker.url_for(var_doc) or NOOP_URL
-        except NotImplementedError: url = NOOP_URL
+        url = self.linker.url_for(var_doc) or NOOP_URL
         # Construct & return the pseudo-html code
         return self._OPERATION_CELL % (url, self._tooltip(var_doc), label)
 
@@ -858,7 +700,7 @@ class DotGraphUmlClassNode(DotGraphNode):
         :todo: Handle tuple args better
         :todo: Optionally add type info?
         """
-        if default is None or not self._show_signature_defaults:
+        if default is None:
             return '%s' % name
         else:
             pyval_repr = default.summary_pyval_repr().to_plaintext(None)
@@ -890,12 +732,12 @@ class DotGraphUmlClassNode(DotGraphNode):
     _LABEL = '''
     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0">
       <TR><TD ROWSPAN="%s">
-        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" WIDTH="100"
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"
                CELLPADDING="0" PORT="body" BGCOLOR="%s">
-          <TR><TD WIDTH="100">%s</TD></TR>
-          <TR><TD WIDTH="100"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD>%s</TD></TR>
+          <TR><TD><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
             %s</TABLE></TD></TR>
-          <TR><TD WIDTH="100"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+          <TR><TD><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
             %s</TABLE></TD></TR>
         </TABLE>
       </TD></TR>
@@ -904,14 +746,13 @@ class DotGraphUmlClassNode(DotGraphNode):
 
     _COLLAPSED_LABEL = '''
     <TABLE CELLBORDER="0" BGCOLOR="%s" PORT="body">
-      <TR><TD WIDTH="50">%s</TD></TR>
+      <TR><TD>%s</TD></TR>
     </TABLE>'''
 
     def _get_html_label(self):
         # Get the class name & contextualize it.
         classname = self.class_doc.canonical_name
-        if self.context is not None:
-            classname = classname.contextualize(self.context.canonical_name)
+        classname = classname.contextualize(self.context.canonical_name)
         
         # If we're collapsed, display the node as a single box.
         if self.collapsed:
@@ -919,7 +760,7 @@ class DotGraphUmlClassNode(DotGraphNode):
         
         # Construct the attribute list.  (If it's too long, truncate)
         attrib_cells = [self._attribute_cell(a) for a in self.attributes]
-        max_attributes = self.options.get('max_attributes', 10)
+        max_attributes = self.options.get('max_attributes', 15)
         if len(attrib_cells) == 0:
             attrib_cells = ['<TR><TD></TD></TR>']
         elif len(attrib_cells) > max_attributes:
@@ -928,7 +769,7 @@ class DotGraphUmlClassNode(DotGraphNode):
                       
         # Construct the operation list.  (If it's too long, truncate)
         oper_cells = [self._operation_cell(a) for a in self.operations]
-        max_operations = self.options.get('max_operations', 5)
+        max_operations = self.options.get('max_operations', 15)
         if len(oper_cells) == 0:
             oper_cells = ['<TR><TD></TD></TR>']
         elif len(oper_cells) > max_operations:
@@ -956,11 +797,6 @@ class DotGraphUmlClassNode(DotGraphNode):
         if not self.collapsed:
             for edge in self.edges:
                 s += '\n' + edge.to_dotfile()
-        if self.same_rank:
-            sr_nodes = ''.join(['node%s; ' % node.id
-                                for node in self.same_rank])
-            # [xx] This can cause dot to crash!  not sure why!
-            #s += '{rank=same; node%s; %s}' % (self.id, sr_nodes)
         return s
 
 class DotGraphUmlModuleNode(DotGraphNode):
@@ -996,9 +832,8 @@ class DotGraphUmlModuleNode(DotGraphNode):
         self.collapsed = collapsed
         self.options = options
         self.excluded_submodules = excluded_submodules
-        try: url = linker.url_for(module_doc) or NOOP_URL
-        except NotImplementedError: url = NOOP_URL
-        DotGraphNode.__init__(self, shape='plaintext', href=url,
+        DotGraphNode.__init__(self, shape='plaintext',
+                              href=linker.url_for(module_doc) or NOOP_URL,
                               tooltip=module_doc.canonical_name)
 
     #: Expects: (color, color, url, tooltip, body)
@@ -1034,8 +869,7 @@ class DotGraphUmlModuleNode(DotGraphNode):
         """
         MAX_ROW_WIDTH = 80 # unit is roughly characters.
         pkg_name = package.canonical_name
-        try: pkg_url = self.linker.url_for(package) or NOOP_URL
-        except NotImplementedError: pkg_url = NOOP_URL
+        pkg_url = self.linker.url_for(package) or NOOP_URL
         
         if (not package.is_package or len(package.submodules) == 0 or
             self.collapsed):
@@ -1076,11 +910,11 @@ class DotGraphUmlModuleNode(DotGraphNode):
 
     _COLOR_DIFF = 24
     def _color(self, package, depth):
-        if package == self.context: return COLOR['SELECTED_BG']
+        if package == self.context: return SELECTED_BG
         else: 
             # Parse the base color.
-            if re.match(COLOR['MODULE_BG'], 'r#[0-9a-fA-F]{6}$'):
-                base = int(COLOR['MODULE_BG'][1:], 16)
+            if re.match(MODULE_BG, 'r#[0-9a-fA-F]{6}$'):
+                base = int(MODULE_BG[1:], 16)
             else:
                 base = int('d8e8ff', 16)
             red = (base & 0xff0000) >> 16
@@ -1119,7 +953,7 @@ def package_tree_graph(packages, linker, context=None, **options):
             log.warning('UML style package trees require dot version 2.0+')
 
     graph = DotGraph('Package Tree for %s' % name_list(packages, context),
-                     body='ranksep=.3\nnodesep=.1\n',
+                     body='ranksep=.3\n;nodesep=.1\n',
                      edge_defaults={'dir':'none'})
     
     # Options
@@ -1169,231 +1003,148 @@ def uml_package_tree_graph(packages, linker, context=None, **options):
     return graph
 
 ######################################################################
-def class_tree_graph(classes, linker, context=None, **options):
+def class_tree_graph(bases, linker, context=None, **options):
     """
     Return a `DotGraph` that graphically displays the class
     hierarchy for the given classes.  Options:
 
-      - exclude: A list of classes that should be excluded
+      - exclude
       - dir: LR|RL|BT requests a left-to-right, right-to-left, or
         bottom-to- top, drawing.  (corresponds to the dot option
         'rankdir'
-      - max_subclass_depth: The maximum depth to which subclasses
-        will be drawn.
-      - max_subclasses: A list of ints, specifying how many
-        subclasses should be drawn per class at each level of the
-        graph.  E.g., [5,3,1] means draw up to 5 subclasses for the
-        specified classes; up to 3 subsubclasses for each of those (up
-        to) 5 subclasses; and up to 1 subclass for each of those.
     """
-    # Callbacks:
-    def mknode(cls, nodetype, linker, context, options):
-        return mk_valdoc_node(cls, linker, context)
-    def mkedge(start, end, edgetype, options):
-        return DotGraphEdge(start, end)
-    
-    if isinstance(classes, ClassDoc): classes = [classes]
-    # [xx] this should be done earlier, and should generate a warning:
-    classes = [c for c in classes if c is not None] 
-    graph = DotGraph('Class Hierarchy for %s' % name_list(classes, context),
+    if isinstance(bases, ClassDoc): bases = [bases]
+    graph = DotGraph('Class Hierarchy for %s' % name_list(bases, context),
                      body='ranksep=0.3\n',
                      edge_defaults={'sametail':True, 'dir':'none'})
-    _class_tree_graph(graph, classes, mknode, mkedge, linker, 
-                      context, options, cls2node={})
+
+    # Options
+    if options.get('dir', 'TB') != 'TB': # default: top-down
+        graph.body += 'rankdir=%s\n' % options.get('dir', 'TB')
+    exclude = options.get('exclude', ())
+
+    # Find all superclasses & subclasses of the given classes.
+    classes = set(bases)
+    queue = list(bases)
+    for cls in queue:
+        if isinstance(cls, ClassDoc):
+            if cls.subclasses not in (None, UNKNOWN):
+                subclasses = cls.subclasses
+                if exclude:
+                    subclasses = [d for d in subclasses if d not in exclude]
+                queue.extend(subclasses)
+                classes.update(subclasses)
+    queue = list(bases)
+    for cls in queue:
+        if isinstance(cls, ClassDoc):
+            if cls.bases not in (None, UNKNOWN):
+                bases = cls.bases
+                if exclude:
+                    bases = [d for d in bases if d not in exclude]
+                queue.extend(bases)
+                classes.update(bases)
+
+    # Add a node for each cls.
+    classes = [d for d in classes if isinstance(d, ClassDoc)
+               if d.pyval is not object]
+    nodes = add_valdoc_nodes(graph, classes, linker, context)
+
+    # Add an edge for each package/subclass relationship.
+    edges = set()
+    for cls in classes:
+        for subcls in cls.subclasses:
+            if cls in nodes and subcls in nodes:
+                edges.add((nodes[cls], nodes[subcls]))
+    graph.edges = [DotGraphEdge(src,dst) for (src,dst) in edges]
+
     return graph
 
-def _class_tree_graph(graph, classes, mknode, mkedge, linker,
-                      context, options, cls2node):
-    """
-    A helper function that is used by both `class_tree_graph()` and
-    `uml_class_tree_graph()` to draw class trees.  To abstract over
-    the differences between the two, this function takes two callback
-    functions that create graph nodes and edges:
-
-    - ``mknode(base, nodetype, linker, context, options)``: Returns
-      a `DotGraphNode`.  ``nodetype`` is one of: subclass, superclass,
-      selected, undocumented.
-    - ``mkedge(begin, end, edgetype, options)``: Returns a
-      `DotGraphEdge`.  ``edgetype`` is one of: subclass,
-      truncate-subclass.
-    """
-    rankdir = options.get('dir', 'TB')
-    graph.body += 'rankdir=%s\n' % rankdir
-    truncated = set()  # Classes whose subclasses were truncated
-    _add_class_tree_superclasses(graph, classes, mknode, mkedge, linker,
-                                 context, options, cls2node)
-    _add_class_tree_subclasses(graph, classes, mknode, mkedge, linker,
-                               context, options, cls2node, truncated)
-    _add_class_tree_inheritance(graph, classes, mknode, mkedge, linker,
-                                context, options, cls2node, truncated)
-
-def _add_class_tree_superclasses(graph, classes, mknode, mkedge, linker,
-                                 context, options, cls2node):
-    exclude = options.get('exclude', ())
-    
-    # Create nodes for all bases.
-    for cls in classes:
-        for base in cls.mro():
-            # Don't include 'object'
-            if base.canonical_name == DottedName('object'): continue
-            # Stop if we reach an excluded class.
-            if base in exclude: break
-            # Don't do the same class twice.
-            if base in cls2node: continue
-            # Decide if the base is documented.
-            try: documented = (linker.url_for(base) is not None)
-            except: documented = True
-            # Make the node.
-            if base in classes: typ = 'selected'
-            elif not documented: typ = 'undocumented'
-            else: typ = 'superclass'
-            cls2node[base] = mknode(base, typ, linker, context, options)
-            graph.nodes.append(cls2node[base])
-
-def _add_class_tree_subclasses(graph, classes, mknode, mkedge, linker,
-                               context, options, cls2node, truncated):
-    exclude = options.get('exclude', ())
-    max_subclass_depth = options.get('max_subclass_depth', 3)
-    max_subclasses = list(options.get('max_subclasses', (5,3,2,1)))
-    max_subclasses += len(classes)*max_subclasses[-1:] # repeat last num
-    
-    # Find the depth of each subclass (for truncation)
-    subclass_depth = _get_subclass_depth_map(classes)
-
-    queue = list(classes)
-    for cls in queue:
-        # If there are no subclasses, then we're done.
-        if not isinstance(cls, ClassDoc): continue
-        if cls.subclasses in (None, UNKNOWN, (), []): continue
-        # Get the list of subclasses.
-        subclasses = [subcls for subcls in cls.subclasses
-                      if subcls not in cls2node and subcls not in exclude]
-        # If the subclass list is too long, then truncate it.
-        if len(subclasses) > max_subclasses[subclass_depth[cls]]:
-            subclasses = subclasses[:max_subclasses[subclass_depth[cls]]]
-            truncated.add(cls)
-        # Truncate any classes that are too deep.
-        num_subclasses = len(subclasses)
-        subclasses = [subcls for subcls in subclasses
-                      if subclass_depth[subcls] <= max_subclass_depth]
-        if len(subclasses) < num_subclasses: truncated.add(cls)
-        # Add a node for each subclass.
-        for subcls in subclasses:
-            cls2node[subcls] = mknode(subcls, 'subclass', linker,
-                                      context, options)
-            graph.nodes.append(cls2node[subcls])
-        # Add the subclasses to our queue.
-        queue.extend(subclasses)
-
-def _add_class_tree_inheritance(graph, classes, mknode, mkedge, linker,
-                                context, options, cls2node, truncated):
-    # Add inheritance edges.
-    for (cls, node) in cls2node.items():
-        if cls.bases is UNKNOWN: continue
-        for base in cls.bases:
-            if base in cls2node:
-                graph.edges.append(mkedge(cls2node[base], node,
-                                          'subclass', options))
-    # Mark truncated classes
-    for cls in truncated:
-        ellipsis = DotGraphNode('...', shape='plaintext',
-                                width='0', height='0')
-        graph.nodes.append(ellipsis)
-        graph.edges.append(mkedge(cls2node[cls], ellipsis,
-                                  'truncate-subclass', options))
-
-def _get_subclass_depth_map(classes):
-    subclass_depth = dict([(cls,0) for cls in classes])
-    queue = list(classes)
-    for cls in queue:
-        if (isinstance(cls, ClassDoc) and
-            cls.subclasses not in (None, UNKNOWN)):
-            for subcls in cls.subclasses:
-                subclass_depth[subcls] = max(subclass_depth.get(subcls,0),
-                                             subclass_depth[cls]+1)
-                queue.append(subcls)
-    return subclass_depth
-
-    
-
 ######################################################################
-def uml_class_tree_graph(classes, linker, context=None, **options):
+def uml_class_tree_graph(class_doc, linker, context=None, **options):
     """
     Return a `DotGraph` that graphically displays the class hierarchy
     for the given class, using UML notation.  Options:
 
-      - exclude: A list of classes that should be excluded
-      - dir: LR|RL|BT requests a left-to-right, right-to-left, or
-        bottom-to- top, drawing.  (corresponds to the dot option
-        'rankdir'
-      - max_subclass_depth: The maximum depth to which subclasses
-        will be drawn.
-      - max_subclasses: A list of ints, specifying how many
-        subclasses should be drawn per class at each level of the
-        graph.  E.g., [5,3,1] means draw up to 5 subclasses for the
-        specified classes; up to 3 subsubclasses for each of those (up
-        to) 5 subclasses; and up to 1 subclass for each of those.
       - max_attributes
       - max_operations
       - show_private_vars
       - show_magic_vars
       - link_attributes
-      - show_signature_defaults
-      - max_signature_width
     """
-    cls2node = {}
+    nodes = {} # ClassDoc -> DotGraphUmlClassNode
+    exclude = options.get('exclude', ())
+        
+    # Create nodes for class_doc and all its bases.
+    for cls in class_doc.mro():
+        if cls.pyval is object: continue # don't include `object`.
+        if cls in exclude: break # stop if we get to an excluded class.
+        if cls == class_doc: color = SELECTED_BG
+        else: color = BASECLASS_BG
+        nodes[cls] = DotGraphUmlClassNode(cls, linker, context,
+                                          show_inherited_vars=False,
+                                          collapsed=False, bgcolor=color)
 
-    # Draw the basic graph:
-    if isinstance(classes, ClassDoc): classes = [classes]
-    graph = DotGraph('UML class diagram for %s' % name_list(classes, context),
-                     body='ranksep=.2\n;nodesep=.3\n')
-    _class_tree_graph(graph, classes, _uml_mknode, _uml_mkedge,
-                      linker, context, options, cls2node)
+    # Create nodes for all class_doc's subclasses.
+    queue = [class_doc]
+    for cls in queue:
+        if (isinstance(cls, ClassDoc) and
+            cls.subclasses not in (None, UNKNOWN)):
+            for subcls in cls.subclasses:
+                subcls_name = subcls.canonical_name[-1]
+                if subcls not in nodes and subcls not in exclude:
+                    queue.append(subcls)
+                    nodes[subcls] = DotGraphUmlClassNode(
+                        subcls, linker, context, collapsed=True,
+                        bgcolor=SUBCLASS_BG)
+                    
+    # Only show variables in the class where they're defined for
+    # *class_doc*.
+    mro = class_doc.mro()
+    for name, var in class_doc.variables.items():
+        i = mro.index(var.container)
+        for base in mro[i+1:]:
+            if base.pyval is object: continue # don't include `object`.
+            overridden_var = base.variables.get(name)
+            if overridden_var and overridden_var.container == base:
+                try:
+                    if isinstance(overridden_var.value, RoutineDoc):
+                        nodes[base].operations.remove(overridden_var)
+                    else:
+                        nodes[base].attributes.remove(overridden_var)
+                except ValueError:
+                    pass # var is filtered (eg private or magic)
 
-    # Turn attributes into links (optional):
-    inheritance_nodes = set(graph.nodes)
+    # Keep track of which nodes are part of the inheritance graph
+    # (since link_attributes might add new nodes)
+    inheritance_nodes = set(nodes.values())
+        
+    # Turn attributes into links.
     if options.get('link_attributes', True):
-        for cls in classes:
-            for base in cls.mro():
-                node = cls2node.get(base)
-                if node is None: continue
-                node.link_attributes(graph, cls2node)
-                # Make sure that none of the new attribute edges break
-                # the rank ordering assigned by inheritance.
-                for edge in node.edges:
-                    if edge.end in inheritance_nodes:
-                        edge['constraint'] = 'False'
+        for node in nodes.values():
+            node.link_attributes(nodes)
+            # Make sure that none of the new attribute edges break the
+            # rank ordering assigned by inheritance.
+            for edge in node.edges:
+                if edge.end in inheritance_nodes:
+                    edge['constraint'] = 'False'
+                
+    # Construct the graph.
+    graph = DotGraph('UML class diagram for %s' % class_doc.canonical_name,
+                     body='ranksep=.2\n;nodesep=.3\n')
+    graph.nodes = nodes.values()
+    
+    # Add inheritance edges.
+    for node in inheritance_nodes:
+        for base in node.class_doc.bases:
+            if base in nodes:
+                graph.edges.append(DotGraphEdge(nodes[base], node,
+                              dir='back', arrowtail='empty',
+                              headport='body', tailport='body',
+                              color=INH_LINK_COLOR, weight=100,
+                              style='bold'))
 
+    # And we're done!
     return graph
-
-# A callback to make graph nodes:
-def _uml_mknode(cls, nodetype, linker, context, options):
-    if nodetype == 'subclass':
-        return DotGraphUmlClassNode(
-            cls, linker, context, collapsed=True,
-            bgcolor=COLOR['SUBCLASS_BG'], **options)
-    elif nodetype in ('selected', 'superclass', 'undocumented'):
-        if nodetype == 'selected': bgcolor = COLOR['SELECTED_BG']
-        if nodetype == 'superclass': bgcolor = COLOR['BASECLASS_BG']
-        if nodetype == 'undocumented': bgcolor = COLOR['UNDOCUMENTED_BG']
-        return DotGraphUmlClassNode(
-            cls, linker, context, show_inherited_vars=False,
-            collapsed=False, bgcolor=bgcolor, **options)
-    assert 0, 'bad nodetype'    
-
-# A callback to make graph edges:
-def _uml_mkedge(start, end, edgetype, options):
-    if edgetype == 'subclass':
-        return DotGraphEdge(
-            start, end, dir='back', arrowtail='empty',
-            headport='body', tailport='body', color=COLOR['INH_LINK'],
-            weight=100, style='bold')
-    if edgetype == 'truncate-subclass':
-        return DotGraphEdge(
-            start, end, dir='back', arrowtail='empty',
-            tailport='body', color=COLOR['INH_LINK'],
-            weight=100, style='bold')
-    assert 0, 'bad edgetype'    
 
 ######################################################################
 def import_graph(modules, docindex, linker, context=None, **options):
@@ -1508,10 +1259,6 @@ def get_dot_version():
             else:
                 _dot_version = (0,)
         except OSError, e:
-            log.error('dot executable not found; graphs will not be '
-                      'generated.  Adjust your shell\'s path, or use '
-                      '--dotpath to specify the path to the dot '
-                      'executable.' % DOT_COMMAND)
             _dot_version = (0,)
         log.info('Detected dot version %s' % _dot_version)
     return _dot_version
@@ -1525,18 +1272,13 @@ def add_valdoc_nodes(graph, val_docs, linker, context):
     :todo: Use different node styles for different subclasses of APIDoc
     """
     nodes = {}
-    for val_doc in sorted(val_docs, key=lambda d:d.canonical_name):
-        nodes[val_doc] = mk_valdoc_node(val_doc, linker, context)
-        graph.nodes.append(nodes[val_doc])
+    val_docs = sorted(val_docs, key=lambda d:d.canonical_name)
+    for i, val_doc in enumerate(val_docs):
+        label = val_doc.canonical_name.contextualize(context.canonical_name)
+        node = nodes[val_doc] = DotGraphNode(label)
+        graph.nodes.append(node)
+        specialize_valdoc_node(node, val_doc, context, linker.url_for(val_doc))
     return nodes
-
-def mk_valdoc_node(val_doc, linker, context):
-    label = val_doc.canonical_name
-    if context is not None:
-        label = label.contextualize(context.canonical_name)
-    node = DotGraphNode(label)
-    specialize_valdoc_node(node, val_doc, context, linker)
-    return node
 
 NOOP_URL = 'javascript:void(0);'
 MODULE_NODE_HTML = '''
@@ -1548,7 +1290,7 @@ MODULE_NODE_HTML = '''
           PORT="body" HREF="%s" TOOLTIP="%s">%s</TD></TR>
   </TABLE>'''.strip()
 
-def specialize_valdoc_node(node, val_doc, context, linker):
+def specialize_valdoc_node(node, val_doc, context, url):
     """
     Update the style attributes of `node` to reflext its type
     and context.
@@ -1564,20 +1306,12 @@ def specialize_valdoc_node(node, val_doc, context, linker):
 
     # Set the URL.  (Do this even if it points to the page we're
     # currently on; otherwise, the tooltip is ignored.)
-    try: url = linker.url_for(val_doc) or NOOP_URL
-    except NotImplementedError: url = NOOP_URL
-    node['href'] = url
-
-    if (url is None and
-        hasattr(linker, 'docindex') and
-        linker.docindex.find(identifier, self.container) is None):
-        node['fillcolor'] = COLOR['UNDOCUMENTED_BG']
-        node['style'] = 'filled'
+    node['href'] = url or NOOP_URL
 
     if isinstance(val_doc, ModuleDoc) and dot_version >= [2]:
         node['shape'] = 'plaintext'
-        if val_doc == context: color = COLOR['SELECTED_BG']
-        else: color = COLOR['MODULE_BG']
+        if val_doc == context: color = SELECTED_BG
+        else: color = MODULE_BG
         node['tooltip'] = node['label']
         node['html_label'] = MODULE_NODE_HTML % (color, color, url,
                                                  val_doc.canonical_name,
@@ -1593,7 +1327,7 @@ def specialize_valdoc_node(node, val_doc, context, linker):
         node['label'] = '%s()' % node['label']
         node['tooltip'] = node['label']
         if val_doc == context:
-            node['fillcolor'] = COLOR['SELECTED_BG']
+            node['fillcolor'] = SELECTED_BG
             node['style'] = 'filled,rounded,bold'
             
     else:
@@ -1602,17 +1336,16 @@ def specialize_valdoc_node(node, val_doc, context, linker):
         node['height'] = 0
         node['tooltip'] = node['label']
         if val_doc == context:
-            node['fillcolor'] = COLOR['SELECTED_BG']
+            node['fillcolor'] = SELECTED_BG
             node['style'] = 'filled,bold'
 
 def name_list(api_docs, context=None):
-    names = [d.canonical_name for d in api_docs]
     if context is not None:
-        names = [name.contextualize(context.canonical_name) for name in names]
+        context = context.canonical_name
+    names = [str(d.canonical_name.contextualize(context)) for d in api_docs]
     if len(names) == 0: return ''
     if len(names) == 1: return '%s' % names[0]
     elif len(names) == 2: return '%s and %s' % (names[0], names[1])
     else:
-        names = ['%s' % name for name in names]
         return '%s, and %s' % (', '.join(names[:-1]), names[-1])
 

@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [01/30/01 05:18 PM]
-# $Id$
+# $Id: html.py 1674 2008-01-29 06:03:36Z edloper $
 #
 
 """
@@ -291,9 +291,6 @@ class HTMLWriter:
         @type include_log: C{boolean}
         @keyword include_log: If true, the the footer will include an
               href to the page 'epydoc-log.html'.
-        @type include_timestamp: C{boolean}
-        @keyword include_timestamp: If true, then include a timestamp in
-              the footer.
         @type src_code_tab_width: C{int}
         @keyword src_code_tab_width: Number of spaces to replace each tab
             with in source code listings.
@@ -361,9 +358,6 @@ class HTMLWriter:
         self._include_log = kwargs.get('include_log', False)
         """Are we generating an HTML log page?"""
 
-        self._include_timestamp = kwargs.get('include_timestamp', True)
-        """Include a timestamp on the generated docs?"""
-
         self._src_code_tab_width = kwargs.get('src_code_tab_width', 8)
         """Number of spaces to replace each tab with in source code
         listings."""
@@ -376,10 +370,6 @@ class HTMLWriter:
         """If true, then include objects in the details list even if all
         info about them is already provided by the summary table."""
 
-        self._show_submodule_list = kwargs.get('show_submodule_list', True)
-        """If true, the include a list of submodules on the package
-        documentation page."""
-        
         # For use with select_variables():
         if self._show_private:
             self._public_filter = None
@@ -387,8 +377,7 @@ class HTMLWriter:
             self._public_filter = True
         
         # Make sure inheritance has a sane value.
-        if self._inheritance not in ('listed', 'included',
-                                     'grouped', 'hidden'):
+        if self._inheritance not in ('listed', 'included', 'grouped'):
             raise ValueError, 'Bad value for inheritance'
 
         # Create the project homepage link, if it was not specified.
@@ -773,7 +762,7 @@ class HTMLWriter:
         self.write_standard_fields(out, doc)
 
         # If it's a package, then list the modules it contains.
-        if doc.is_package is True and self._show_submodule_list:
+        if doc.is_package is True:
             self.write_module_list(out, doc)
 
         # Write summary tables describing the variables that the
@@ -847,11 +836,7 @@ class HTMLWriter:
         self.write_breadcrumbs(out, doc, self.url(doc))
 
         # Write the name of the class we're describing.
-        if (doc.metaclass is not UNKNOWN and
-                doc.metaclass.canonical_name not in (None, UNKNOWN) and 
-                doc.metaclass.canonical_name != 'type'):
-            typ = self.href(doc.metaclass, doc.metaclass.canonical_name[-1])
-        elif doc.is_type(): typ = 'Type'
+        if doc.is_type(): typ = 'Type'
         elif doc.is_exception(): typ = 'Exception'
         else: typ = 'Class'
         out('<!-- ==================== %s ' % typ.upper() +
@@ -874,19 +859,19 @@ class HTMLWriter:
                     out('<pre class="base-tree">\n%s</pre>\n\n' %
                         self.base_tree(doc))
 
-            # Write the known subclasses
-            if (doc.subclasses not in (UNKNOWN, None) and
-                len(doc.subclasses) > 0):
-                out('<dl><dt>Known Subclasses:</dt>\n<dd>\n    ')
-                out('  <ul class="subclass-list">\n')
-                for i, subclass in enumerate(doc.subclasses):
-                    href = self.href(subclass, context=doc)
-                    if self._val_is_public(subclass): css = ''
-                    else: css = ' class="private"'
-                    if i > 0: href = ', '+href
-                    out('<li%s>%s</li>' % (css, href))
-                out('  </ul>\n')
-                out('</dd></dl>\n\n')
+                # Write the known subclasses
+                if (doc.subclasses not in (UNKNOWN, None) and
+                    len(doc.subclasses) > 0):
+                    out('<dl><dt>Known Subclasses:</dt>\n<dd>\n    ')
+                    out('  <ul class="subclass-list">\n')
+                    for i, subclass in enumerate(doc.subclasses):
+                        href = self.href(subclass, context=doc)
+                        if self._val_is_public(subclass): css = ''
+                        else: css = ' class="private"'
+                        if i > 0: href = ', '+href
+                        out('<li%s>%s</li>' % (css, href))
+                    out('  </ul>\n')
+                    out('</dd></dl>\n\n')
 
             out('<hr />\n')
         
@@ -1000,22 +985,21 @@ class HTMLWriter:
         # Build a set containing all classes that we should list.
         # This includes everything in class_list, plus any of those
         # class' bases, but not undocumented subclasses.
-        class_set = set()
+        class_set = self.class_set.copy()
         for doc in self.class_list:
-            class_set.update([base for base in doc.mro()
-                              if isinstance(base, ClassDoc) and
-                              base.canonical_name != DottedName('object')])
-
-        
+            if doc.bases != UNKNOWN:
+                for base in doc.bases:
+                    if base not in class_set:
+                        if isinstance(base, ClassDoc):
+                            class_set.update(base.mro())
+                        else:
+                            # [XX] need to deal with this -- how?
+                            pass
+                            #class_set.add(base)
+ 
         out('<ul class="nomargin-top">\n')
         for doc in sorted(class_set, key=lambda c:c.canonical_name[-1]):
-            # If doc is a subclass of anything that's documented, then
-            # we don't need to list it separately; it will be listed
-            # under that base.
-            for base in doc.mro()[1:]:
-                if base in class_set: break
-            else:
-                # It's not a subclass of anything documented:
+            if doc.bases != UNKNOWN and len(doc.bases)==0:
                 self.write_class_tree_item(out, doc, class_set)
         out('</ul>\n')
         
@@ -1643,7 +1627,9 @@ class HTMLWriter:
     def render_graph(self, graph):
         if graph is None: return ''
         graph.caption = graph.title = None
-        return graph.to_html(self._directory) or ''
+        image_url = '%s.gif' % graph.uid
+        image_file = os.path.join(self._directory, image_url)
+        return graph.to_html(image_file, image_url)
     
     RE_CALLGRAPH_ID = re.compile(r"""["'](.+-div)['"]""")
     
@@ -1667,24 +1653,27 @@ class HTMLWriter:
         
         if isinstance(callgraph, basestring):
             uid = callgraph
-            graph_html = self._callgraph_cache.get(callgraph, "")
-        elif callgraph.uid in self._callgraph_cache:
-            uid = callgraph.uid
-            graph_html = self._callgraph_cache.get(callgraph, "")
+            rv = self._callgraph_cache.get(callgraph, "")
+
         else:
             uid = callgraph.uid
             graph_html = self.render_graph(callgraph)
-            self._callgraph_cache[uid] = graph_html
+            if graph_html == '':
+                rv = ""
+            else:
+                rv = ('<div style="display:none" id="%%s-div"><center>\n'
+                      '<table border="0" cellpadding="0" cellspacing="0">\n'
+                      '  <tr><td>%s</td></tr>\n'
+                      '  <tr><th>Call Graph</th></tr>\n'
+                      '</table><br />\n</center></div>\n' % graph_html)
 
-        if graph_html:
-            return ('<div style="display:none" id="%s-div"><center>\n'
-                    '<table border="0" cellpadding="0" cellspacing="0">\n'
-                    '  <tr><td>%s</td></tr>\n'
-                    '  <tr><th>Call Graph</th></tr>\n'
-                    '</table><br />\n</center></div>\n' %
-                    (uid+token, graph_html))
-        else:
-            return ''
+            # Store in the cache the complete HTML chunk without the
+            # div id, which may be made unambiguous by the token
+            self._callgraph_cache[uid] = rv
+
+        # Mangle with the graph
+        if rv: rv = rv % (uid + token)
+        return rv
 
     def callgraph_link(self, callgraph, token=""):
         """Render the HTML chunk of a callgraph link.
@@ -1782,13 +1771,9 @@ class HTMLWriter:
             <td align="left" class="footer">
         >>>   if self._include_log:
             <a href="epydoc-log.html">Generated by Epydoc
-            $epydoc.__version__$
-        >>>       if self._include_timestamp:
-            on $time.asctime()$</a>
+            $epydoc.__version__$ on $time.asctime()$</a>
         >>>   else:
-            Generated by Epydoc $epydoc.__version__$
-        >>>       if self._include_timestamp:
-            on $time.asctime()$
+            Generated by Epydoc $epydoc.__version__$ on $time.asctime()$
         >>>   #endif
             </td>
             <td align="right" class="footer">
@@ -2057,8 +2042,6 @@ class HTMLWriter:
                     listed_inh_vars.setdefault(base,[]).append(var_doc)
                 elif self._inheritance == 'grouped':
                     grouped_inh_vars.setdefault(base,[]).append(var_doc)
-                elif self._inheritance == 'hidden':
-                    pass
                 else:
                     normal_vars.append(var_doc)
             else:
@@ -2146,10 +2129,6 @@ class HTMLWriter:
                     var_doc.value.callgraph_uid = callgraph.uid
                 else:
                     callgraph = None
-        elif isinstance(var_doc.value, ClassDoc):
-            typ = -1 # use the whole row for description.
-            description = self.summary_name(var_doc,
-                link_name=link_name, anchor=anchor)
         else:
             typ = self.type_descr(var_doc, indent=6)
             description = self.summary_name(var_doc,
@@ -2182,9 +2161,6 @@ class HTMLWriter:
         # /------------------------- Template -------------------------\
         '''
           <tr$tr_class$>
-        >>> if typ == -1:
-            <td class="summary" colspan="2">
-        >>> else:
             <td width="15%" align="right" valign="top" class="summary">
               <span class="summary-type">$typ or "&nbsp;"$</span>
             </td><td class="summary">
@@ -2280,10 +2256,7 @@ class HTMLWriter:
                             [('Get', prop_doc.fget), ('Set', prop_doc.fset),
                              ('Delete', prop_doc.fdel)]
                             if val_doc not in (None, UNKNOWN)
-                          # [xx] this requires introspection -- why do this?
-                            and val_doc.pyval is not None
-                          # [xx] (end)
-                            and not val_doc.canonical_name[0].startswith('??')]
+                            and val_doc.pyval is not None ]
 
             self.write_property_details_entry(out, var_doc, descr,
                                               accessors, div_class)
@@ -3440,7 +3413,7 @@ class HTMLWriter:
 
     def _private_subclasses(self, class_doc):
         """Return a list of all subclasses of the given class that are
-        private, as determined by L{_val_is_public}.  Recursive
+        private, as determined by L{_val_is_private}.  Recursive
         subclasses are included in this list."""
         queue = [class_doc]
         private = set()
@@ -3468,12 +3441,11 @@ class _HTMLDocstringLinker(epydoc.markup.DocstringLinker):
         if label is None: label = plaintext_to_html(identifier)
 
         # Find the APIDoc for it (if it's available).
-        try: doc = self.docindex.find(identifier, self.container, True)
-        except: doc = 'notfound'
+        doc = self.docindex.find(identifier, self.container)
 
         # If we didn't find a target, then try checking in the contexts
         # of the ancestor classes. 
-        if doc == 'notfound' and isinstance(self.container, RoutineDoc):
+        if doc is None and isinstance(self.container, RoutineDoc):
             container = self.docindex.get_vardoc(
                 self.container.canonical_name)
             while (doc is None and container not in (None, UNKNOWN)
@@ -3482,13 +3454,14 @@ class _HTMLDocstringLinker(epydoc.markup.DocstringLinker):
                 doc = self.docindex.find(identifier, container)
                 
         # Translate it into HTML.
-        if doc in (None, 'notfound'):
-            if doc == 'notfound':
-                self._failed_xref(identifier)
+        if doc is None:
+            self._failed_xref(identifier)
             return '<code class="link">%s</code>' % label
         else:
             return self.htmlwriter.href(doc, label, 'link')
 
+    # [xx] Should this be added to the DocstringLinker interface???
+    # Currently, this is *only* used by dotgraph.
     def url_for(self, identifier):
         if isinstance(identifier, (basestring, DottedName)):
             doc = self.docindex.find(identifier, self.container)
@@ -3499,6 +3472,7 @@ class _HTMLDocstringLinker(epydoc.markup.DocstringLinker):
             
         elif isinstance(identifier, APIDoc):
             return self.htmlwriter.url(identifier)
+            doc = identifier
             
         else:
             raise TypeError('Expected string or APIDoc')

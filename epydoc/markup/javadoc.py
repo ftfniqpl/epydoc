@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [07/03/03 12:37 PM]
-# $Id$
+# $Id: javadoc.py 1574 2007-03-07 02:55:14Z dvarrazzo $
 #
 
 """

@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [01/30/01 05:18 PM]
-# $Id$
+# $Id: checker.py 1366 2006-09-07 15:54:59Z edloper $
 #
 
 """

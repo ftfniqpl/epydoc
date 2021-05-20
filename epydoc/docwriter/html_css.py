@@ -3,7 +3,7 @@
 # Edward Loper
 #
 # Created [01/30/01 05:18 PM]
-# $Id$
+# $Id: html_css.py 1634 2007-09-24 15:58:38Z dvarrazzo $
 #
 
 """
@@ -41,7 +41,7 @@ import re
 
 # Black on white, with blue highlights.  This is similar to how
 # javadoc looks.
-TEMPLATE = r"""
+TEMPLATE = """
 
 /* Epydoc CSS Stylesheet
  *
@@ -205,8 +205,8 @@ table.summary a.summary-sig-name:visited
 
 /* Subclass list
  */
-ul.subclass-list { display: inline; margin: 0; padding: 0; }
-ul.subclass-list li { display: inline; margin: 0; padding: 0; }
+ul.subclass-list { display: inline; }
+ul.subclass-list li { display: inline; }
 
 /* To render variables, classes etc. like functions */
 table.summary .summary-name { color: $summary_sig_name; font-weight: bold;

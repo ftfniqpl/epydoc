@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: docstringparser.py 1689 2008-01-30 17:01:02Z edloper $
 
 """
 Parse docstrings and handle any fields it defines, such as C{@type}
@@ -322,7 +322,7 @@ def add_metadata_from_var(api_doc, field):
             if field.multivalue and not value:
                 try: value = epydoc.docparser.parse_string_list(val_doc.toktree)
                 except KeyboardInterrupt: raise
-                except: pass
+                except: raise
                 
         # Add any values that we found.
         for elt in value:

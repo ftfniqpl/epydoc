@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: cli.py 1678 2008-01-29 17:21:29Z edloper $
 
 """
 Command-line interface for epydoc.  Abbreviated Usage::
@@ -63,21 +63,18 @@ levels are currently defined as follows::
 """
 __docformat__ = 'epytext en'
 
-import sys, os, time, re, pickle, textwrap, tempfile, shutil
+import sys, os, time, re, pickle, textwrap
 from glob import glob
 from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
 import optparse
 import epydoc
 from epydoc import log
 from epydoc.util import wordwrap, run_subprocess, RunSubprocessError
-from epydoc.util import plaintext_to_html, TerminalController
+from epydoc.util import plaintext_to_html
 from epydoc.apidoc import UNKNOWN
 from epydoc.compat import *
 import ConfigParser
 from epydoc.docwriter.html_css import STYLESHEETS as CSS_STYLESHEETS
-from epydoc.docwriter.latex_sty import STYLESHEETS as STY_STYLESHEETS
-from epydoc.docwriter.dotgraph import DotGraph
-from epydoc.docwriter.dotgraph import COLOR as GRAPH_COLOR
 
 # This module is only available if Docutils are in the system
 try:
@@ -85,14 +82,11 @@ try:
 except:
     xlink = None
 
-INHERITANCE_STYLES = ('grouped', 'listed', 'included', 'hidden')
+INHERITANCE_STYLES = ('grouped', 'listed', 'included')
 GRAPH_TYPES = ('classtree', 'callgraph', 'umlclasstree')
 ACTIONS = ('html', 'text', 'latex', 'dvi', 'ps', 'pdf', 'check')
 DEFAULT_DOCFORMAT = 'epytext'
 PROFILER = 'profile' #: Which profiler to use: 'hotshot' or 'profile'
-TARGET_ACTIONS = ('html', 'latex', 'dvi', 'ps', 'pdf')
-DEFAULT_ACTIONS = ('html',)
-PDFDRIVERS = ('pdflatex', 'latex', 'auto')
 
 ######################################################################
 #{ Help Topics
@@ -120,9 +114,6 @@ HELP_TOPICS = {
         '\n'.join(['  %10s: %s' % (key, descr)
                    for (key, (sheet, descr))
                    in CSS_STYLESHEETS.items()])),
-    'sty': textwrap.dedent(
-        'The following built-in LaTeX style files are available:\n' +
-        ', '.join(STY_STYLESHEETS)),
     #'checks': textwrap.dedent('''\
     #
     #    '''),
@@ -137,37 +128,16 @@ HELP_TOPICS['topics'] = wordwrap(
 #{ Argument & Config File Parsing
 ######################################################################
 
-DEFAULT_TARGET = dict(
-    html='html', latex='latex', dvi='api.dvi', ps='api.ps',
-    pdf='api.pdf', pickle='api.pickle')
-
-def option_defaults():
-    return dict(
-        actions=[], show_frames=True, docformat=DEFAULT_DOCFORMAT, 
-        show_private=True, show_imports=False, inheritance="listed",
-        verbose=0, quiet=0, load_pickle=False, parse=True, introspect=True,
-        debug=epydoc.DEBUG, profile=False, graphs=[],
-        list_classes_separately=False, graph_font=None, graph_font_size=None,
-        include_source_code=True, pstat_files=[], simple_term=False,
-        fail_on=None, exclude=[], exclude_parse=[], exclude_introspect=[],
-        external_api=[], external_api_file=[], external_api_root=[],
-        redundant_details=False, src_code_tab_width=8, verbosity=0,
-        include_timestamp=True, target={}, default_target=None,
-        pdfdriver='auto', show_submodule_list=True, inherit_from_object=False)
-
-# append_const is not defined in py2.3 or py2.4, so use a callback
-# instead, with the following function:
-def add_action(option, opt, value, optparser):
-    action = opt.replace('-', '')
-    optparser.values.actions.append(action)
-
-def add_target(option, opt, value, optparser):
-    if optparser.values.actions:
-        optparser.values.target[optparser.values.actions[-1]] = value
-    elif optparser.values.default_target is None:
-        optparser.values.default_target = value
-    else:
-        optparser.error("Default output target specified multiple times!")
+OPTION_DEFAULTS = dict(
+    action="html", show_frames=True, docformat=DEFAULT_DOCFORMAT, 
+    show_private=True, show_imports=False, inheritance="listed",
+    verbose=0, quiet=0, load_pickle=False, parse=True, introspect=True,
+    debug=epydoc.DEBUG, profile=False, graphs=[],
+    list_classes_separately=False, graph_font=None, graph_font_size=None,
+    include_source_code=True, pstat_files=[], simple_term=False, fail_on=None,
+    exclude=[], exclude_parse=[], exclude_introspect=[],
+    external_api=[], external_api_file=[], external_api_root=[],
+    redundant_details=False, src_code_tab_width=8)
 
 def parse_arguments():
     # Construct the option parser.
@@ -181,7 +151,7 @@ def parse_arguments():
               "and/or NAMES.  This option may be repeated."))
 
     optparser.add_option("--output", "-o",
-        action='callback', callback=add_target, type='string', metavar="PATH",
+        dest="target", metavar="PATH",
         help="The output directory.  If PATH does not exist, then "
         "it will be created.")
 
@@ -202,48 +172,49 @@ def parse_arguments():
         help="Do not try to use color or cursor control when displaying "
         "the progress bar, warnings, or errors.")
 
+
     action_group = OptionGroup(optparser, 'Actions')
     optparser.add_option_group(action_group)
 
     action_group.add_option("--html",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="html",
         help="Write HTML output.")
 
     action_group.add_option("--text",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="text",
         help="Write plaintext output. (not implemented yet)")
 
     action_group.add_option("--latex",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="latex",
         help="Write LaTeX output.")
 
     action_group.add_option("--dvi",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="dvi",
         help="Write DVI output.")
 
     action_group.add_option("--ps",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="ps",
         help="Write Postscript output.")
 
     action_group.add_option("--pdf",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="pdf",
         help="Write PDF output.")
 
     action_group.add_option("--check",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="check",
         help="Check completeness of docs.")
 
     action_group.add_option("--pickle",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="pickle",
         help="Write the documentation to a pickle file.")
 
     # Provide our own --help and --version options.
     action_group.add_option("--version",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="version",
         help="Show epydoc's version number and exit.")
 
     action_group.add_option("-h", "--help",
-        action='callback', callback=add_action, 
+        action="store_const", dest="action", const="help",
         help="Show this message and exit.  For help on specific "
         "topics, use \"--help TOPIC\".  Use \"--help topics\" for a "
         "list of available help topics")
@@ -315,30 +286,11 @@ def parse_arguments():
         action='store_true', dest='include_log',
         help=("Include a page with the process log (epydoc-log.html)"))
 
-    generation_group.add_option('--redundant-details',
+    generation_group.add_option(
+        '--redundant-details',
         action='store_true', dest='redundant_details',
         help=("Include values in the details lists even if all info "
               "about them is already provided by the summary table."))
-
-    generation_group.add_option('--show-submodule-list',
-        action='store_true', dest='show_submodule_list',
-        help="Include a list of submodules on package documentation "
-        "pages.  (default)")
-        
-    generation_group.add_option('--no-submodule-list',
-        action='store_false', dest='show_submodule_list',
-        help="Do not include a list of submodules on package "
-        "documentation pages.")
-
-    generation_group.add_option('--inherit-from-object',
-        action='store_true', dest='inherit_from_object',
-        help="Include methods & properties that are inherited from "
-        "\"object\".")
-        
-    generation_group.add_option('--no-inherit-from-object',
-        action='store_false', dest='inherit_from_object',
-        help="Do not include methods & properties that are inherited "
-        "from \"object\".  (default)")
 
     output_group = OptionGroup(optparser, 'Output Options')
     optparser.add_option_group(output_group)
@@ -351,19 +303,6 @@ def parse_arguments():
         dest="css", metavar="STYLESHEET",
         help="The CSS stylesheet.  STYLESHEET can be either a "
         "builtin stylesheet or the name of a CSS file.")
-
-    output_group.add_option("--sty",
-        dest="sty", metavar="LATEXSTYLE",
-        help="The LaTeX style file.  LATEXSTYLE can be either a "
-        "builtin style file or the name of a .sty file.")
-
-    output_group.add_option("--pdfdriver",
-        dest="pdfdriver", metavar="DRIVER",
-        help="The command sequence that should be used to render "
-        "pdf output.  \"pdflatex\" will generate the pdf directly "
-        "using pdflatex.  \"latex\" will generate the pdf using "
-        "latex, dvips, and ps2pdf in succession.  \"auto\" will use "
-        "pdflatex if available, and latex otherwise.")
 
     output_group.add_option("--url", "-u",
         dest="prj_url", metavar="URL",
@@ -403,10 +342,6 @@ def parse_arguments():
         action='store', type='int', dest='src_code_tab_width',
         help=("When generating HTML output, sets the number of spaces "
               "each tab in source code listings is replaced with."))
-
-    output_group.add_option('--suppress-timestamp',
-        action='store_false', dest='include_timestamp',
-        help=("Do not include a timestamp in the generated output."))
     
     # The group of external API options.
     # Skip if the module couldn't be imported (usually missing docutils)
@@ -450,30 +385,13 @@ def parse_arguments():
         action='append', dest='pstat_files', metavar='FILE',
         help="A pstat output file, to be used in generating call graphs.")
 
-    graph_group.add_option('--max-html-graph-size',
-        action='store', dest='max_html_graph_size', metavar='SIZE',
-        help="Set the maximum graph size for HTML graphs.  This should "
-        "be a string of the form \"w,h\", specifying the maximum width "
-        "and height in inches.  Default=%r" % DotGraph.DEFAULT_HTML_SIZE)
-
-    graph_group.add_option('--max-latex-graph-size',
-        action='store', dest='max_latex_graph_size', metavar='SIZE',
-        help="Set the maximum graph size for LATEX graphs.  This should "
-        "be a string of the form \"w,h\", specifying the maximum width "
-        "and height in inches.  Default=%r" % DotGraph.DEFAULT_LATEX_SIZE)
-
-    graph_group.add_option('--graph-image-format',
-        dest='graph_image_format', metavar='FORMAT',
-        help="Specify the file format used for graph images in the HTML "
-             "output.  Can be one of gif, png, jpg.  Default=%r" %
-             DotGraph.DEFAULT_HTML_IMAGE_FORMAT)
-
     # this option is for developers, not users.
     graph_group.add_option("--profile-epydoc",
         action="store_true", dest="profile",
         help=SUPPRESS_HELP or
              ("Run the hotshot profiler on epydoc itself.  Output "
               "will be written to profile.out."))
+
 
     return_group = OptionGroup(optparser, 'Return Value Options')
     optparser.add_option_group(return_group)
@@ -496,14 +414,14 @@ def parse_arguments():
         "warnings).")
 
     # Set the option parser's defaults.
-    optparser.set_defaults(**option_defaults())
+    optparser.set_defaults(**OPTION_DEFAULTS)
 
     # Parse the arguments.
     options, names = optparser.parse_args()
 
     # Print help message, if requested.  We also provide support for
     # --help [topic]
-    if 'help' in options.actions:
+    if options.action == 'help':
         names = set([n.lower() for n in names])
         for (topic, msg) in HELP_TOPICS.items():
             if topic.lower() in names:
@@ -513,7 +431,7 @@ def parse_arguments():
         sys.exit(0)
 
     # Print version message, if requested.
-    if 'version' in options.actions:
+    if options.action == 'version':
         print version
         sys.exit(0)
     
@@ -552,6 +470,8 @@ def parse_arguments():
     if not options.parse and not options.introspect:
         optparser.error("Invalid option combination: --parse-only "
                         "and --introspect-only.")
+    if options.action == 'text' and len(names) > 1:
+        optparser.error("--text option takes only one name.")
 
     # Check the list of requested graph types to make sure they're
     # acceptable.
@@ -569,44 +489,19 @@ def parse_arguments():
                 options.graphs = [g for g in GRAPH_TYPES if g != 'callgraph']
             break
         elif graph_type not in GRAPH_TYPES:
-            optparser.error("Invalid graph type %s.  Expected one of: %s." %
-                            (graph_type, ', '.join(GRAPH_TYPES + ('all',))))
-
-    # Check the value of the pdfdriver option; and check for conflicts
-    # between pdfdriver & actions
-    options.pdfdriver = options.pdfdriver.lower()
-    if options.pdfdriver not in PDFDRIVERS:
-        optparser.error("Invalid pdf driver %r.  Expected one of: %s" %
-                        (options.pdfdriver, ', '.join(PDF_DRIVERS)))
-    if (options.pdfdriver == 'pdflatex' and
-        ('dvi' in options.actions or 'ps' in options.actions)):
-        optparser.error("Use of the pdflatex driver is incompatible "
-                        "with generating dvi or ps output.")
-
-    # Set graph defaults
-    if options.max_html_graph_size:
-        if not re.match(r'^\d+\s*,\s*\d+$', options.max_html_graph_size):
-            optparser.error("Bad max-html-graph-size value: %r" %
-                            options.max_html_graph_size)
-        DotGraph.DEFAULT_HTML_SIZE = options.max_html_graph_size
-    if options.max_latex_graph_size:
-        if not re.match(r'^\d+\s*,\s*\d+$', options.max_latex_graph_size):
-            optparser.error("Bad max-latex-graph-size value: %r" %
-                            options.max_latex_graph_size)
-        DotGraph.DEFAULT_LATEX_SIZE = options.max_latex_graph_size
-    if options.graph_image_format:
-        if options.graph_image_format not in ('jpg', 'png', 'gif'):
-            optparser.error("Bad graph-image-format %r; expected one of: "
-                            "jpg, png, gif." % options.graph_image_format)
-        DotGraph.DEFAULT_HTML_IMAGE_FORMAT = options.graph_image_format
+            optparser.error("Invalid graph type %s." % graph_type)
 
     # Calculate verbosity.
     verbosity = getattr(options, 'verbosity', 0)
     options.verbosity = verbosity + options.verbose - options.quiet
 
+    # The target default depends on the action.
+    if options.target is None:
+        options.target = options.action
+    
     # Return parsed args.
     options.names = names
-    return options
+    return options, names
 
 def parse_configfiles(configfiles, options, names):
     configparser = ConfigParser.ConfigParser()
@@ -624,14 +519,12 @@ def parse_configfiles(configfiles, options, names):
                        'module', 'object', 'value'):
             names.extend(_str_to_list(val))
         elif optname == 'target':
-            options.default_target = val
+            options.target = val
         elif optname == 'output':
-            for action, target in re.findall('(\w+)\s*(?:->\s*(\S+))?', val):
-                if action not in ACTIONS:
-                    raise ValueError('"%s" expected one of %s, got %r' %
-                                     (optname, ', '.join(ACTIONS), action))
-                options.actions.append(action)
-                if target: options.target[action] = target
+            if val.lower() not in ACTIONS:
+                raise ValueError('"%s" expected one of: %s' %
+                                 (optname, ', '.join(ACTIONS)))
+            options.action = val.lower()
         elif optname == 'verbosity':
             options.verbosity = _str_to_int(val, optname)
         elif optname == 'debug':
@@ -667,20 +560,12 @@ def parse_configfiles(configfiles, options, names):
             options.include_log = _str_to_bool(val, optname)
         elif optname in ('redundant-details', 'redundant_details'):
             options.redundant_details = _str_to_bool(val, optname)
-        elif optname in ('submodule-list', 'submodule_list'):
-            options.show_submodule_list = _str_to_bool(val, optname)
-        elif optname in ('inherit-from-object', 'inherit_from_object'):
-            options.inherit_from_object = _str_to_bool(val, optname)
 
         # Output options
         elif optname == 'name':
             options.prj_name = val
         elif optname == 'css':
             options.css = val
-        elif optname == 'sty':
-            options.sty = val
-        elif optname == 'pdfdriver':
-            options.pdfdriver = val
         elif optname == 'url':
             options.prj_url = val
         elif optname == 'link':
@@ -695,8 +580,6 @@ def parse_configfiles(configfiles, options, names):
             options.list_classes_separately = _str_to_bool(val, optname)
         elif optname in ('src-code-tab-width', 'src_code_tab_width'):
             options.src_code_tab_width = _str_to_int(val, optname)
-        elif optname == 'timestamp':
-            options.include_timestamp = _str_to_bool(val, optname)
 
         # External API
         elif optname in ('external-api', 'external_api'):
@@ -722,22 +605,6 @@ def parse_configfiles(configfiles, options, names):
             options.graph_font_size = _str_to_int(val, optname)
         elif optname == 'pstat':
             options.pstat_files.extend(_str_to_list(val))
-        elif optname in ('max-html-graph-size', 'max_html_graph_size'):
-            options.max_html_graph_size = val
-        elif optname in ('max-latex-graph-size', 'max_latex_graph_size'):
-            options.max_latex_graph_size = val
-        elif optname in ('graph-image-format', 'graph_image_format'):
-            options.graph_image_format = val
-        elif optname.startswith('graph-'):
-            color = optname[6:].upper().strip()
-            color = color.replace('-', '_')
-            color = color.replace('_BACKGROUND', '_BG')
-            if color in GRAPH_COLOR:
-                if not re.match(r'#[a-fA-F0-9]+|\w+', val):
-                    raise ValueError('Bad color %r for %r' % (val, color))
-                GRAPH_COLOR[color] = val
-            else:
-                raise ValueError('Unknown option %s' % optname)
 
         # Return value options
         elif optname in ('failon', 'fail-on', 'fail_on'):
@@ -775,30 +642,24 @@ def _str_to_list(val):
 #{ Interface
 ######################################################################
 
-def main(options):
-    """
-    Perform all actions indicated by the given set of options.
-    
-    @return: the L{epydoc.apidoc.DocIndex} object created while
-        running epydoc (or None).
-    """
+def main(options, names):
     # Set the debug flag, if '--debug' was specified.
     if options.debug:
         epydoc.DEBUG = True
 
-    if not options.actions:
-        options.actions = DEFAULT_ACTIONS
+    ## [XX] Did this serve a purpose?  Commenting out for now:
+    #if options.action == 'text':
+    #    if options.parse and options.introspect:
+    #        options.parse = False
 
     # Set up the logger
-    loggers = []
     if options.simple_term:
         TerminalController.FORCE_SIMPLE_TERM = True
-    if options.actions == ['text']:
-        pass # no logger for text output.
+    if options.action == 'text':
+        logger = None # no logger for text output.
     elif options.verbosity > 1:
         logger = ConsoleLogger(options.verbosity)
         log.register_logger(logger)
-        loggers.append(logger)
     else:
         # Each number is a rough approximation of how long we spend on
         # that task, used to divide up the unified progress bar.
@@ -812,55 +673,34 @@ def main(options):
                   2]   # Sorting & Grouping
         if options.load_pickle:
             stages = [30] # Loading pickled documentation
-        if 'html' in options.actions: stages += [100]
-        if 'check' in options.actions: stages += [10]
-        if 'pickle' in options.actions: stages += [10]
-        if 'latex' in options.actions: stages += [60]
-        if 'pdf' in options.actions: stages += [50]
-        elif 'ps' in options.actions: stages += [40] # implied by pdf
-        elif 'dvi' in options.actions: stages += [30] # implied by ps
-        if 'text' in options.actions: stages += [30]
-        
+        if options.action == 'html': stages += [100]
+        elif options.action == 'text': stages += [30]
+        elif options.action == 'latex': stages += [60]
+        elif options.action == 'dvi': stages += [60,30]
+        elif options.action == 'ps': stages += [60,40]
+        elif options.action == 'pdf': stages += [60,50]
+        elif options.action == 'check': stages += [10]
+        elif options.action == 'pickle': stages += [10]
+        else: raise ValueError, '%r not supported' % options.action
         if options.parse and not options.introspect:
             del stages[1] # no merging
         if options.introspect and not options.parse:
             del stages[1:3] # no merging or linking
         logger = UnifiedProgressConsoleLogger(options.verbosity, stages)
         log.register_logger(logger)
-        loggers.append(logger)
 
-    # Calculate the target directories/files.
-    for (key, val) in DEFAULT_TARGET.items():
-        if options.default_target is not None:
-            options.target.setdefault(key, options.default_target)
-        else:
-            options.target.setdefault(key, val)
-
-    # Add extensions to target filenames, where appropriate.
-    for action in ['pdf', 'ps', 'dvi', 'pickle']:
-        if action in options.target:
-            if not options.target[action].endswith('.%s' % action):
-                options.target[action] += '.%s' % action
-
-    # check the output targets.
-    for action in options.actions:
-        if action not in TARGET_ACTIONS: continue
-        target = options.target[action]
-        if os.path.exists(target):
-            if action not in ['html', 'latex'] and os.path.isdir(target):
-                log.error("%s is a directory" % target)
-                sys.exit(1)
-            elif action in ['html', 'latex'] and not os.path.isdir(target):
-                log.error("%s is not a directory" % target)
+    # check the output directory.
+    if options.action not in ('text', 'check', 'pickle'):
+        if os.path.exists(options.target):
+            if not os.path.isdir(options.target):
+                log.error("%s is not a directory" % options.target)
                 sys.exit(1)
 
     if options.include_log:
-        if 'html' in options.actions:
-            if not os.path.exists(options.target['html']):
-                os.mkdir(options.target['html'])
-            logger = HTMLLogger(options.target['html'], options)
-            log.register_logger(logger)
-            loggers.append(logger)
+        if options.action == 'html':
+            if not os.path.exists(options.target):
+                os.mkdir(options.target)
+            log.register_logger(HTMLLogger(options.target, options))
         else:
             log.warning("--include-log requires --html")
 
@@ -896,11 +736,11 @@ def main(options):
     # If the input name is a pickle file, then read the docindex that
     # it contains.  Otherwise, build the docs for the input names.
     if options.load_pickle:
-        assert len(options.names) == 1
+        assert len(names) == 1
         log.start_progress('Deserializing')
-        log.progress(0.1, 'Loading %r' % options.names[0])
+        log.progress(0.1, 'Loading %r' % names[0])
         t0 = time.time()
-        unpickler = pickle.Unpickler(open(options.names[0], 'rb'))
+        unpickler = pickle.Unpickler(open(names[0], 'rb'))
         unpickler.persistent_load = pickle_persistent_load
         docindex = unpickler.load()
         log.debug('deserialization time: %.1f sec' % (time.time()-t0))
@@ -911,20 +751,15 @@ def main(options):
         exclude_parse = '|'.join(options.exclude_parse+options.exclude)
         exclude_introspect = '|'.join(options.exclude_introspect+
                                       options.exclude)
-        inherit_from_object = options.inherit_from_object
-        docindex = build_doc_index(options.names,
-                                   options.introspect, options.parse,
-                                   add_submodules=(options.actions!=['text']),
+        docindex = build_doc_index(names, options.introspect, options.parse,
+                                   add_submodules=(options.action!='text'),
                                    exclude_introspect=exclude_introspect,
-                                   exclude_parse=exclude_parse,
-                                   inherit_from_object=inherit_from_object)
+                                   exclude_parse=exclude_parse)
 
     if docindex is None:
-        for logger in loggers:
-            if log.ERROR in logger.reported_message_levels:
-                sys.exit(1)
+        if log.ERROR in logger.reported_message_levels:
+            sys.exit(1)
         else:
-            for logger in loggers: log.remove_logger(logger)
             return # docbuilder already logged an error.
 
     # Load profile information, if it was given.
@@ -936,48 +771,40 @@ def main(options):
             profile_stats = pstats.Stats(options.pstat_files[0])
             for filename in options.pstat_files[1:]:
                 profile_stats.add(filename)
-        except KeyboardInterrupt:
-            for logger in loggers: log.remove_logger(logger)
-            raise
+        except KeyboardInterrupt: raise
         except Exception, e:
             log.error("Error reading pstat file: %s" % e)
             profile_stats = None
         if profile_stats is not None:
             docindex.read_profiling_info(profile_stats)
 
-    # Perform the specified action.  NOTE: It is important that these
-    # are performed in the same order that the 'stages' list was
-    # constructed, at the top of this function.
-    if 'html' in options.actions:
+    # Perform the specified action.
+    if options.action == 'html':
         write_html(docindex, options)
-    if 'check' in options.actions:
-        check_docs(docindex, options)
-    if 'pickle' in options.actions:
-        write_pickle(docindex, options)
-    if ('latex' in options.actions or 'dvi' in options.actions or
-        'ps' in options.actions or 'pdf' in options.actions):
-        write_latex(docindex, options)
-    if 'text' in options.actions:
+    elif options.action in ('latex', 'dvi', 'ps', 'pdf'):
+        write_latex(docindex, options, options.action)
+    elif options.action == 'text':
         write_text(docindex, options)
+    elif options.action == 'check':
+        check_docs(docindex, options)
+    elif options.action == 'pickle':
+        write_pickle(docindex, options)
+    else:
+        print >>sys.stderr, '\nUnsupported action %s!' % options.action
 
     # If we suppressed docstring warnings, then let the user know.
-    for logger in loggers:
-        if (isinstance(logger, ConsoleLogger) and
-            logger.suppressed_docstring_warning):
-            if logger.suppressed_docstring_warning == 1:
-                prefix = '1 markup error was found'
-            else:
-                prefix = ('%d markup errors were found' %
-                          logger.suppressed_docstring_warning)
-            log.warning("%s while processing docstrings.  Use the verbose "
-                        "switch (-v) to display markup errors." % prefix)
+    if logger is not None and logger.suppressed_docstring_warning:
+        if logger.suppressed_docstring_warning == 1:
+            prefix = '1 markup error was found'
+        else:
+            prefix = ('%d markup errors were found' %
+                      logger.suppressed_docstring_warning)
+        log.warning("%s while processing docstrings.  Use the verbose "
+                    "switch (-v) to display markup errors." % prefix)
 
     # Basic timing breakdown:
-    if options.verbosity >= 2:
-        for logger in loggers:
-            if isinstance(logger, ConsoleLogger):
-                logger.print_times()
-                break
+    if options.verbosity >= 2 and logger is not None:
+        logger.print_times()
 
     # If we encountered any message types that we were requested to
     # fail on, then exit with status 2.
@@ -986,20 +813,14 @@ def main(options):
         if max_reported_message_level >= options.fail_on:
             sys.exit(2)
 
-    # Deregister our logger(s).
-    for logger in loggers: log.remove_logger(logger)
-
-    # Return the docindex, in case someone wants to use it programatically.
-    return docindex
-            
 def write_html(docindex, options):
     from epydoc.docwriter.html import HTMLWriter
     html_writer = HTMLWriter(docindex, **options.__dict__)
     if options.verbose > 0:
-        log.start_progress('Writing HTML docs to %r' % options.target['html'])
+        log.start_progress('Writing HTML docs to %r' % options.target)
     else:
         log.start_progress('Writing HTML docs')
-    html_writer.write(options.target['html'])
+    html_writer.write(options.target)
     log.end_progress()
 
 def write_pickle(docindex, options):
@@ -1007,9 +828,14 @@ def write_pickle(docindex, options):
     read in at a later time.  But loading the pickle is only marginally
     faster than building the docs from scratch, so this has pretty
     limited application."""
+    if options.target == 'pickle':
+        options.target = 'api.pickle'
+    elif not options.target.endswith('.pickle'):
+        options.target += '.pickle'
+
     log.start_progress('Serializing output')
-    log.progress(0.2, 'Writing %r' % options.target['pickle'])
-    outfile = open(options.target['pickle'], 'wb')
+    log.progress(0.2, 'Writing %r' % options.target)
+    outfile = open(options.target, 'wb')
     pickler = pickle.Pickler(outfile, protocol=0)
     pickler.persistent_id = pickle_persistent_id
     pickler.dump(docindex)
@@ -1031,147 +857,76 @@ def pickle_persistent_load(identifier):
 _RERUN_LATEX_RE = re.compile(r'(?im)^LaTeX\s+Warning:\s+Label\(s\)\s+may'
                              r'\s+have\s+changed.\s+Rerun')
 
-def write_latex(docindex, options):
-    # If latex is an intermediate target, then use a temporary
-    # directory for its files.
-    if 'latex' in options.actions:
-        latex_target = options.target['latex']
-    else:
-        latex_target = tempfile.mkdtemp()
-
-    log.start_progress('Writing LaTeX docs')
-    
-    # Choose a pdfdriver if we're generating pdf output.
-    if options.pdfdriver=='auto' and ('latex' in options.actions or
-                                      'dvi' in options.actions or
-                                      'ps' in options.actions or
-                                      'pdf' in options.actions):
-        if 'dvi' in options.actions or 'ps' in options.actions:
-            options.pdfdriver = 'latex'
-        else:
-            try:
-                run_subprocess('pdflatex --version')
-                options.pdfdriver = 'pdflatex'
-            except RunSubprocessError, e:
-                options.pdfdriver = 'latex'
-    log.info('%r pdfdriver selected' % options.pdfdriver)
-    
-    from epydoc.docwriter.latex import LatexWriter, show_latex_warnings
+def write_latex(docindex, options, format):
+    from epydoc.docwriter.latex import LatexWriter
     latex_writer = LatexWriter(docindex, **options.__dict__)
-    try:
-        latex_writer.write(latex_target)
-    except IOError, e:
-        log.error(e)
-        log.end_progress()
-        log.start_progress()
-        log.end_progress()
-        return
+    log.start_progress('Writing LaTeX docs')
+    latex_writer.write(options.target)
     log.end_progress()
-
-    # Decide how many steps we need to go through.
-    if 'pdf' in options.actions:
-        if options.pdfdriver == 'latex': steps = 6
-        elif 'ps' in options.actions: steps = 8
-        elif 'dvi' in options.actions: steps = 7
-        else: steps = 4
-    elif 'ps' in options.actions: steps = 5
-    elif 'dvi' in options.actions: steps = 4
-    else:
-        # If we're just generating the latex, and not any derived
-        # output format, then we're done.
-        assert 'latex' in options.actions
-        return
-
-    # Decide whether we need to run latex, pdflatex, or both.
-    if options.pdfdriver == 'latex':
-        latex_commands = ['latex']
-    elif 'dvi' in options.actions or 'ps' in options.actions:
-        latex_commands = ['latex', 'pdflatex']
-    else:
-        latex_commands = ['pdflatex']
-        
+    # If we're just generating the latex, and not any output format,
+    # then we're done.
+    if format == 'latex': return
+    
+    if format == 'dvi': steps = 4
+    elif format == 'ps': steps = 5
+    elif format == 'pdf': steps = 6
+    
     log.start_progress('Processing LaTeX docs')
     oldpath = os.path.abspath(os.curdir)
     running = None # keep track of what we're doing.
-    step = 0.
     try:
         try:
-            os.chdir(latex_target)
+            os.chdir(options.target)
 
             # Clear any old files out of the way.
-            for ext in 'aux log out idx ilg toc ind'.split():
-                if os.path.exists('api.%s' % ext):
-                    os.remove('api.%s' % ext)
+            for ext in 'tex aux log out idx ilg toc ind'.split():
+                if os.path.exists('apidoc.%s' % ext):
+                    os.remove('apidoc.%s' % ext)
 
-            for latex_command in latex_commands:
-                LaTeX = latex_command.replace('latex', 'LaTeX')
-                # The first pass generates index files.
-                running = latex_command
-                log.progress(step/steps, '%s (First pass)' % LaTeX)
-                step += 1
-                run_subprocess('%s api.tex' % latex_command)
-                
-                # Build the index.
-                running = 'makeindex'
-                log.progress(step/steps, '%s (Build index)' % LaTeX)
-                step += 1
-                run_subprocess('makeindex api.idx')
-                
-                # The second pass generates our output.
-                running = latex_command
-                log.progress(step/steps, '%s (Second pass)' % LaTeX)
-                step += 1
-                out, err = run_subprocess('%s api.tex' % latex_command)
-                
-                # The third pass is only necessary if the second pass
-                # changed what page some things are on.
-                running = latex_command
-                if _RERUN_LATEX_RE.search(out):
-                    log.progress(step/steps, '%s (Third pass)' % LaTeX)
-                    out, err = run_subprocess('%s api.tex' % latex_command)
-                    
-                # A fourth path should (almost?) never be necessary.
-                running = latex_command
-                if _RERUN_LATEX_RE.search(out):
-                    log.progress(step/steps, '%s (Fourth pass)' % LaTeX)
-                    out, err = run_subprocess('%s api.tex' % latex_command)
-                step += 1
+            # The first pass generates index files.
+            running = 'latex'
+            log.progress(0./steps, 'LaTeX: First pass')
+            run_subprocess('latex api.tex')
 
-                # Show the output, if verbosity is high:
-                if options.verbosity > 2 or epydoc.DEBUG:
-                    show_latex_warnings(out)
+            # Build the index.
+            running = 'makeindex'
+            log.progress(1./steps, 'LaTeX: Build index')
+            run_subprocess('makeindex api.idx')
+
+            # The second pass generates our output.
+            running = 'latex'
+            log.progress(2./steps, 'LaTeX: Second pass')
+            out, err = run_subprocess('latex api.tex')
+            
+            # The third pass is only necessary if the second pass
+            # changed what page some things are on.
+            running = 'latex'
+            if _RERUN_LATEX_RE.match(out):
+                log.progress(3./steps, 'LaTeX: Third pass')
+                out, err = run_subprocess('latex api.tex')
+ 
+            # A fourth path should (almost?) never be necessary.
+            running = 'latex'
+            if _RERUN_LATEX_RE.match(out):
+                log.progress(3./steps, 'LaTeX: Fourth pass')
+                run_subprocess('latex api.tex')
 
             # If requested, convert to postscript.
-            if ('ps' in options.actions or
-                ('pdf' in options.actions and options.pdfdriver=='latex')):
+            if format in ('ps', 'pdf'):
                 running = 'dvips'
-                log.progress(step/steps, 'dvips')
-                step += 1
+                log.progress(4./steps, 'dvips')
                 run_subprocess('dvips api.dvi -o api.ps -G0 -Ppdf')
 
             # If requested, convert to pdf.
-            if 'pdf' in options.actions and options.pdfdriver=='latex':
+            if format in ('pdf'):
                 running = 'ps2pdf'
-                log.progress(step/steps, 'ps2pdf')
-                step += 1
+                log.progress(5./steps, 'ps2pdf')
                 run_subprocess(
                     'ps2pdf -sPAPERSIZE#letter -dMaxSubsetPct#100 '
                     '-dSubsetFonts#true -dCompatibilityLevel#1.2 '
                     '-dEmbedAllFonts#true api.ps api.pdf')
-
-            # Copy files to their respective targets.
-            if 'dvi' in options.actions:
-                dst = os.path.join(oldpath, options.target['dvi'])
-                shutil.copy2('api.dvi', dst)
-            if 'ps' in options.actions:
-                dst = os.path.join(oldpath, options.target['ps'])
-                shutil.copy2('api.ps', dst)
-            if 'pdf' in options.actions:
-                dst = os.path.join(oldpath, options.target['pdf'])
-                shutil.copy2('api.pdf', dst)
-
         except RunSubprocessError, e:
-            if running in ('latex', 'pdflatex'):
+            if running == 'latex':
                 e.out = re.sub(r'(?sm)\A.*?!( LaTeX Error:)?', r'', e.out)
                 e.out = re.sub(r'(?sm)\s*Type X to quit.*', '', e.out)
                 e.out = re.sub(r'(?sm)^! Emergency stop.*', '', e.out)
@@ -1180,52 +935,34 @@ def write_latex(docindex, options):
             log.error("%s failed: %s" % (running, e))
     finally:
         os.chdir(oldpath)
-        
-        if 'latex' not in options.actions:
-            # The latex output went to a tempdir; clean it up.
-            log.info('Cleaning up %s' % latex_target)
-            try:
-                for filename in os.listdir(latex_target):
-                    os.remove(os.path.join(latex_target, filename))
-                os.rmdir(latex_target)
-            except Exception, e:
-                log.error("Error cleaning up tempdir %s: %s" %
-                          (latex_target, e))
-                
         log.end_progress()
 
 def write_text(docindex, options):
     log.start_progress('Writing output')
     from epydoc.docwriter.plaintext import PlaintextWriter
     plaintext_writer = PlaintextWriter()
-    s = '\n'
+    s = ''
     for apidoc in docindex.root:
-        s += plaintext_writer.write(apidoc, **options.__dict__)+'\n'
+        s += plaintext_writer.write(apidoc)
     log.end_progress()
     if isinstance(s, unicode):
         s = s.encode('ascii', 'backslashreplace')
-    sys.stdout.write(s)
+    print s
 
 def check_docs(docindex, options):
     from epydoc.checker import DocChecker
     DocChecker(docindex).check()
                 
 def cli():
-    """
-    Perform all actions indicated by the options in sys.argv.
-    
-    @return: the L{epydoc.apidoc.DocIndex} object created while
-        running epydoc (or None).
-    """
     # Parse command-line arguments.
-    options = parse_arguments()
+    options, names = parse_arguments()
 
     try:
         try:
             if options.profile:
                 _profile()
             else:
-                return main(options)
+                main(options, names)
         finally:
             log.close()
     except SystemExit:
@@ -1253,7 +990,7 @@ def _profile():
             return
         try:
             prof = hotshot.Profile('hotshot.out')
-            prof = prof.runctx('main(parse_arguments())', globals(), {})
+            prof = prof.runctx('main(*parse_arguments())', globals(), {})
         except SystemExit:
             pass
         prof.close()
@@ -1283,7 +1020,7 @@ def _profile():
             Profile.dispatch['c_exception'] = trace_dispatch_return
         try:
             prof = Profile()
-            prof = prof.runctx('main(parse_arguments())', globals(), {})
+            prof = prof.runctx('main(*parse_arguments())', globals(), {})
         except SystemExit:
             pass
         prof.dump_stats('profile.out')
@@ -1295,8 +1032,83 @@ def _profile():
 ######################################################################
 #{ Logging
 ######################################################################
-# [xx] this should maybe move to util.py or log.py
     
+class TerminalController:
+    """
+    A class that can be used to portably generate formatted output to
+    a terminal.  See
+    U{http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/475116}
+    for documentation.  (This is a somewhat stripped-down version.)
+    """
+    BOL = ''             #: Move the cursor to the beginning of the line
+    UP = ''              #: Move the cursor up one line
+    DOWN = ''            #: Move the cursor down one line
+    LEFT = ''            #: Move the cursor left one char
+    RIGHT = ''           #: Move the cursor right one char
+    CLEAR_EOL = ''       #: Clear to the end of the line.
+    CLEAR_LINE = ''      #: Clear the current line; cursor to BOL.
+    BOLD = ''            #: Turn on bold mode
+    NORMAL = ''          #: Turn off all modes
+    COLS = 75            #: Width of the terminal (default to 75)
+    BLACK = BLUE = GREEN = CYAN = RED = MAGENTA = YELLOW = WHITE = ''
+    
+    _STRING_CAPABILITIES = """
+    BOL=cr UP=cuu1 DOWN=cud1 LEFT=cub1 RIGHT=cuf1
+    CLEAR_EOL=el BOLD=bold UNDERLINE=smul NORMAL=sgr0""".split()
+    _COLORS = """BLACK BLUE GREEN CYAN RED MAGENTA YELLOW WHITE""".split()
+    _ANSICOLORS = "BLACK RED GREEN YELLOW BLUE MAGENTA CYAN WHITE".split()
+
+    #: If this is set to true, then new TerminalControllers will
+    #: assume that the terminal is not capable of doing manipulation
+    #: of any kind.
+    FORCE_SIMPLE_TERM = False
+
+    def __init__(self, term_stream=sys.stdout):
+        # If the stream isn't a tty, then assume it has no capabilities.
+        if not term_stream.isatty(): return
+        if self.FORCE_SIMPLE_TERM: return
+
+        # Curses isn't available on all platforms
+        try: import curses
+        except:
+            # If it's not available, then try faking enough to get a
+            # simple progress bar.
+            self.BOL = '\r'
+            self.CLEAR_LINE = '\r' + ' '*self.COLS + '\r'
+            
+        # Check the terminal type.  If we fail, then assume that the
+        # terminal has no capabilities.
+        try: curses.setupterm()
+        except: return
+
+        # Look up numeric capabilities.
+        self.COLS = curses.tigetnum('cols')
+        
+        # Look up string capabilities.
+        for capability in self._STRING_CAPABILITIES:
+            (attrib, cap_name) = capability.split('=')
+            setattr(self, attrib, self._tigetstr(cap_name) or '')
+        if self.BOL and self.CLEAR_EOL:
+            self.CLEAR_LINE = self.BOL+self.CLEAR_EOL
+
+        # Colors
+        set_fg = self._tigetstr('setf')
+        if set_fg:
+            for i,color in zip(range(len(self._COLORS)), self._COLORS):
+                setattr(self, color, curses.tparm(set_fg, i) or '')
+        set_fg_ansi = self._tigetstr('setaf')
+        if set_fg_ansi:
+            for i,color in zip(range(len(self._ANSICOLORS)), self._ANSICOLORS):
+                setattr(self, color, curses.tparm(set_fg_ansi, i) or '')
+
+    def _tigetstr(self, cap_name):
+        # String capabilities can include "delays" of the form "$<2>".
+        # For any modern terminal, we should be able to just ignore
+        # these, so strip them out.
+        import curses
+        cap = curses.tigetstr(cap_name) or ''
+        return re.sub(r'\$<\d+>[/*]?', '', cap)
+
 class ConsoleLogger(log.Logger):
     def __init__(self, verbosity, progress_mode=None):
         self._verbosity = verbosity
@@ -1490,7 +1302,7 @@ class ConsoleLogger(log.Logger):
 
     def start_progress(self, header=None):
         if self._progress is not None:
-            raise ValueError('previous progress bar not ended')
+            raise ValueError
         self._progress = None
         self._progress_start_time = time.time()
         self._progress_header = header
@@ -1516,10 +1328,10 @@ class ConsoleLogger(log.Logger):
         total = sum([time for (time, task) in self._task_times])
         max_t = max([time for (time, task) in self._task_times])
         for (time, task) in self._task_times:
-            task = task[:34]
-            print '  %s%s%7.1fs' % (task, '.'*(37-len(task)), time),
-            if self.term.COLS > 58:
-                print '|'+'=' * int((self.term.COLS-56) * time / max_t)
+            task = task[:31]
+            print '  %s%s %7.1fs' % (task, '.'*(35-len(task)), time),
+            if self.term.COLS > 55:
+                print '|'+'=' * int((self.term.COLS-53) * time / max_t)
             else:
                 print
         print
@@ -1546,8 +1358,6 @@ class UnifiedProgressConsoleLogger(ConsoleLogger):
         if self.stage == 0:
             ConsoleLogger.start_progress(self)
         self.stage += 1
-        if self.stage > len(self.stages):
-            self.stage = len(self.stages) # should never happen!
 
     def end_progress(self):
         if self.stage == len(self.stages):
@@ -1595,8 +1405,7 @@ class HTMLLogger(log.Logger):
         msg = '<table border="0" cellpadding="0" cellspacing="0">\n'
         opts = [(key, getattr(options, key)) for key in dir(options)
                 if key not in dir(optparse.Values)]
-        defaults = option_defaults()
-        opts = [(val==defaults.get(key), key, val)
+        opts = [(val==OPTION_DEFAULTS.get(key), key, val)
                 for (key, val) in opts]
         for is_default, key, val in sorted(opts):
             css = is_default and 'opt-default' or 'opt-changed'
@@ -1632,7 +1441,6 @@ class HTMLLogger(log.Logger):
         return self.MESSAGE % (level.split()[-1], hdr, message)
 
     def close(self):
-        if self.out is None: return
         if self.is_empty:
             self.out.write('<div class="log-info">'
                            'No warnings or errors!</div>')
@@ -1642,7 +1450,6 @@ class HTMLLogger(log.Logger):
                        (time.ctime(), self._elapsed_time()))
         self.out.write(self.FOOTER)
         self.out.close()
-        self.out = None
 
     def _elapsed_time(self):
         secs = int(time.time()-self.start_time)

@@ -4,7 +4,7 @@
 # Author: Edward Loper <edloper@loper.org>
 # URL: <http://epydoc.sf.net>
 #
-# $Id$
+# $Id: __init__.py 956 2006-03-10 01:30:51Z edloper $
 
 """
 Output generation.
